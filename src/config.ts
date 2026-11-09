@@ -14,11 +14,6 @@ const configSchema = z.object({
   GOOGLE_SERVICE_ACCOUNT_EMAIL: z.email(),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: z.string().transform((value) => value.replace(/\\n/g, '\n'))
     .refine((value) => value.includes('-----BEGIN PRIVATE KEY-----') && value.includes('-----END PRIVATE KEY-----'), 'Некорректный PEM ключ'),
-  NOMINATIM_USER_AGENT: z.string().min(10).refine((value) => {
-    const email = value.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/)?.[0];
-    return !!email && !/@(?:example\.(?:com|org|net)|localhost)$/i.test(email);
-  }, 'Укажите название приложения и действительный контактный email'),
-  NOMINATIM_BASE_URL: httpsUrl.default('https://nominatim.openstreetmap.org'),
 });
 
 export type Config = z.infer<typeof configSchema>;

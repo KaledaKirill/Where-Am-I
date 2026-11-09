@@ -3,7 +3,7 @@ import type { Transformer } from 'grammy';
 import type { Update } from 'grammy/types';
 import { vi } from 'vitest';
 import { LocationService } from '../src/services/location-service.js';
-import { berlin, env, MemoryRepository } from './fixtures.js';
+import { env, MemoryRepository } from './fixtures.js';
 
 export function botFixture() {
   const info = { id: 123456789, is_bot: true as const, first_name: 'Where Am I', username: 'WhereAmIBot',
@@ -21,9 +21,8 @@ export function botFixture() {
   });
   bot.api.config.use(transport as unknown as Transformer);
   const repo = new MemoryRepository();
-  const resolver = { resolve: vi.fn(async () => [berlin]) };
-  const service = new LocationService(repo, resolver);
-  return { bot, repo, resolver, service, calls, transport, info };
+  const service = new LocationService(repo);
+  return { bot, repo, service, calls, transport, info };
 }
 
 export function messageUpdate(text: string, chatId = -100123, userId = 1001): Update {

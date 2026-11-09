@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { parsePage, renderListPage } from '../src/bot/pagination.js';
 import { escapeHtml } from '../src/bot/formatting.js';
 import { current } from './fixtures.js';
-import type { CityGroup } from '../src/domain/models.js';
+import type { LocationGroup } from '../src/domain/models.js';
 
-function group(count: number, name = current.display_name): CityGroup {
-  return { place_key: current.place_key, label: 'Берлин, Германия',
+function group(count: number, name = current.display_name): LocationGroup {
+  return { key: current.location, label: current.location,
     users: Array.from({ length: count }, (_, i) => ({ ...current, user_id: String(i + 1), display_name: name })) };
 }
 

@@ -97,7 +97,7 @@ describe('important application events', () => {
     const capture = captureLogs();
     registerCommands(f.bot, f.service, env.TELEGRAM_GROUP_ID, capture.logger);
     f.transport.mockRejectedValue(sensitiveError);
-    await expect(f.bot.handleUpdate(messageUpdate('/set Берлин'))).rejects.toThrow();
+    await expect(f.bot.handleUpdate(messageUpdate('/set Берлин Германия'))).rejects.toThrow();
     expect(capture.records.map((line) => line.event)).toEqual(expect.arrayContaining(['location_saved', 'command_failed', 'telegram_update_failed']));
     expect(capture.output()).not.toContain('super-secret');
     expect(f.repo.history).toHaveLength(1);
@@ -110,7 +110,7 @@ describe('important application events', () => {
     try {
       await app.inject({ method: 'GET', url: '/health' });
       expect(capture.records).toHaveLength(0);
-      await app.inject({ method: 'POST', url: '/telegram/webhook?token=super-secret', headers: { 'x-telegram-bot-api-secret-token': 'private-key' }, payload: messageUpdate('/set Берлин') });
+      await app.inject({ method: 'POST', url: '/telegram/webhook?token=super-secret', headers: { 'x-telegram-bot-api-secret-token': 'private-key' }, payload: messageUpdate('/set Берлин Германия') });
       expect(capture.records).toEqual(expect.arrayContaining([expect.objectContaining({ event: 'webhook_rejected', level: 40 })]));
       for (const secret of ['super-secret', 'private-key', 'Берлин', 'Анна']) expect(capture.output()).not.toContain(secret);
     } finally { await app.close(); }

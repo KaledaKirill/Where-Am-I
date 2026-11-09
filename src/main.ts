@@ -2,7 +2,6 @@ import { Bot } from 'grammy';
 import { loadConfig } from './config.js';
 import { createApp } from './app.js';
 import { createGoogleSheetsRepository } from './adapters/google-sheets-repository.js';
-import { NominatimPlaceResolver } from './adapters/nominatim-place-resolver.js';
 import { LocationService } from './services/location-service.js';
 import { createLogger, logOperation, safeError } from './logging.js';
 
@@ -15,7 +14,7 @@ async function main(): Promise<void> {
   startupStage = 'sheets_initialize';
   const repository = createGoogleSheetsRepository(config, logger.child({ component: 'google_sheets' }));
   await repository.initialize();
-  const service = new LocationService(repository, new NominatimPlaceResolver(config.NOMINATIM_USER_AGENT, config.NOMINATIM_BASE_URL, undefined, logger.child({ component: 'nominatim' })));
+  const service = new LocationService(repository);
   const bot = new Bot(config.TELEGRAM_BOT_TOKEN, { client: { timeoutSeconds: 10 } });
   startupStage = 'telegram_initialize';
   await logOperation(logger, 'telegram_initialize', () => bot.init());

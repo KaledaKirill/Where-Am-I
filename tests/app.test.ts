@@ -23,14 +23,13 @@ describe('HTTP application', () => {
     expect(response.json()).toEqual({ status: 'ok' });
     expect(read).not.toHaveBeenCalled();
     expect(f.transport).not.toHaveBeenCalled();
-    expect(f.resolver.resolve).not.toHaveBeenCalled();
   });
 
   it.each([undefined, 'wrong', 'xxxxxxxxxxx'])('rejects webhook secret %j before handling updates', async (secret) => {
     const f = setup();
     const response = await f.app.inject({ method: 'POST', url: '/telegram/webhook',
       headers: secret ? { 'x-telegram-bot-api-secret-token': secret } : {},
-      payload: messageUpdate('/set Берлин'),
+      payload: messageUpdate('/set Берлин Германия'),
     });
     expect(response.statusCode).toBe(403);
     expect(f.repo.history).toHaveLength(0);
@@ -41,7 +40,7 @@ describe('HTTP application', () => {
     const f = setup();
     const response = await f.app.inject({ method: 'POST', url: '/telegram/webhook',
       headers: { 'x-telegram-bot-api-secret-token': env.TELEGRAM_WEBHOOK_SECRET },
-      payload: messageUpdate('/set Берлин'),
+      payload: messageUpdate('/set Берлин Германия'),
     });
     expect(response.statusCode).toBe(200);
     expect(f.repo.history).toHaveLength(1);

@@ -12,9 +12,7 @@ export function errorText(error: unknown): string {
   if (!(error instanceof LocationError)) return 'Сервис временно недоступен. Попробуйте немного позже.';
   switch (error.code) {
     case 'empty_input': return 'Укажите город и страну. Например: /set Берлин, Германия';
-    case 'invalid_input': return 'Укажите только населённый пункт и страну, без адреса, ссылок и координат (до 120 символов).';
-    case 'not_found': return 'Не удалось найти город. Попробуйте /set Берлин, Германия';
-    case 'ambiguous': return 'Найдено несколько возможных мест. Уточните город, страну или регион в новой команде /set.';
+    case 'invalid_input': return 'Укажите город и страну через запятую или пробел (до 120 символов). Например: /set Минск, Беларусь';
     case 'unavailable': return 'Сервис временно недоступен. Попробуйте немного позже.';
   }
 }

@@ -72,11 +72,8 @@ export function safeError(error: unknown, depth = 0): Record<string, string | nu
     if (error.message.startsWith('Некорректная конфигурация:')) {
       fields.error_code = 'invalid_configuration';
       fields.invalid_fields = (error.message.split(':')[1] ?? '').split(',').map((key) => key.trim())
-        .filter((key) => /^(NODE_ENV|LOG_LEVEL|PORT|PUBLIC_BASE_URL|TELEGRAM_BOT_TOKEN|TELEGRAM_GROUP_ID|TELEGRAM_WEBHOOK_SECRET|GOOGLE_SPREADSHEET_ID|GOOGLE_SERVICE_ACCOUNT_EMAIL|GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY|NOMINATIM_USER_AGENT|NOMINATIM_BASE_URL)$/.test(key));
-    } else if (error.message.startsWith('Несовместимые заголовки листа ')) fields.error_code = 'incompatible_sheet_headers';
-    else if (/^Лист (Users|LocationHistory) содержит данные без заголовков/.test(error.message)) fields.error_code = 'missing_sheet_headers';
-    else if (error.message === 'Некорректные или повторные записи Users') fields.error_code = 'invalid_user_rows';
-    else if (error.message === 'Некорректный ответ Nominatim') fields.error_code = 'invalid_nominatim_response';
+        .filter((key) => /^(NODE_ENV|LOG_LEVEL|PORT|PUBLIC_BASE_URL|TELEGRAM_BOT_TOKEN|TELEGRAM_GROUP_ID|TELEGRAM_WEBHOOK_SECRET|GOOGLE_SPREADSHEET_ID|GOOGLE_SERVICE_ACCOUNT_EMAIL|GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)$/.test(key));
+    } else if (error.message === 'Некорректные или повторные записи Users') fields.error_code = 'invalid_user_rows';
   }
   return fields;
 }

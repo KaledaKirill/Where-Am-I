@@ -1,5 +1,5 @@
 import { InlineKeyboard } from 'grammy';
-import type { CityGroup } from '../domain/models.js';
+import type { LocationGroup } from '../domain/models.js';
 import { displayText, EMPTY_LIST_TEXT } from './formatting.js';
 
 export interface ListPage { text: string; keyboard: InlineKeyboard; index: number; totalPages: number }
@@ -9,7 +9,7 @@ export function parsePage(data: string): number | null {
   return Number(data.slice(5));
 }
 
-export function renderListPage(groups: CityGroup[], requestedPage = 0): ListPage {
+export function renderListPage(groups: LocationGroup[], requestedPage = 0): ListPage {
   const total = groups.reduce((sum, group) => sum + group.users.length, 0);
   if (!total) return { text: EMPTY_LIST_TEXT, keyboard: new InlineKeyboard([]), index: 0, totalPages: 1 };
   const prefix = `<b>Всего отметившихся: ${total}</b>\n\n`;
@@ -21,7 +21,7 @@ export function renderListPage(groups: CityGroup[], requestedPage = 0): ListPage
     const header = `<b>${displayText(group.label)} — ${group.users.length}</b>\n`;
     for (const user of group.users) {
       const person = `• <a href="tg://user?id=${user.user_id}">${displayText(user.display_name, 128) || 'Участник'}</a>\n`;
-      let addition = (lastGroup === group.place_key ? '' : `${body ? '\n' : ''}${header}`) + person;
+      let addition = (lastGroup === group.key ? '' : `${body ? '\n' : ''}${header}`) + person;
       // Conservative bound on raw HTML also bounds Telegram's parsed text.
       if (count && (count >= 20 || prefix.length + body.length + addition.length > 3500)) {
         pages.push(prefix + body);
@@ -31,7 +31,7 @@ export function renderListPage(groups: CityGroup[], requestedPage = 0): ListPage
       }
       body += addition;
       count++;
-      lastGroup = group.place_key;
+      lastGroup = group.key;
     }
   }
   if (count) pages.push(prefix + body);
