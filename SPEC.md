@@ -64,7 +64,7 @@
 | `/help` | Только краткое описание команд `/set` и `/list` |
 | `/start` | Тот же текст, что `/help` |
 
-Учитывать стандартную Telegram-форму `/set@BotUsername Берлин, Германия`. Команды, явно адресованные другому боту, игнорировать. Зарегистрировать команды через `setMyCommands` для групп.
+Учитывать стандартную Telegram-форму `/set@BotUsername Берлин, Германия`. Команды, явно адресованные другому боту, игнорировать. Зарегистрировать команды через `setMyCommands` для разрешённой группы. Ошибки настройки меню не блокируют запуск: бота можно добавить после деплоя; при его добавлении повторить настройку меню по событию `my_chat_member`. Команды работают независимо от настройки меню.
 
 **Не обрабатывать обычную переписку:** «Я сейчас в Берлине» без `/set` не является отметкой.
 
@@ -259,7 +259,7 @@ interface PlaceResolver {
 
 - Сервер слушает `0.0.0.0:${PORT}`, HTTPS обеспечивает Render.
 - Интеграция grammY через официальный `webhookCallback(bot, 'fastify', ...)` либо документированный эквивалент. В production **не** запускать polling (`bot.start()`).
-- Зарегистрировать webhook с `secret_token`, `allowed_updates: ["message", "callback_query"]`, `max_connections: 1`. Проверять `X-Telegram-Bot-Api-Secret-Token` на входе.
+- Зарегистрировать webhook с `secret_token`, `allowed_updates: ["message", "callback_query", "my_chat_member"]`, `max_connections: 1`. Проверять `X-Telegram-Bot-Api-Secret-Token` на входе. События `my_chat_member` использовать только для настройки меню при добавлении бота; выход не меняет данные.
 - Проверять `chat.id === TELEGRAM_GROUP_ID` до чтения/записи/отображения данных; не доверять `callback_data` и `username`.
 - Для inline-пагинации проверять чат в callback, валидировать индекс страницы, обязательно вызвать `answerCallbackQuery`.
 - Экранировать имя Telegram, город и страну в HTML-ответах, ограничивать длины сообщений, не принимать потенциальные формулы Sheets.
@@ -288,10 +288,10 @@ interface PlaceResolver {
 ### Render Free
 
 1. Подключить GitHub-репозиторий как **Web Service**, план Free.
-2. Build: `npm ci && npm run build`; start: `npm run start` (скомпилированный JS).
+2. Build: `npm ci --include=dev && npm run build`; start: `node dist/scripts/register-webhook.js && npm run start` (скомпилированный JS).
 3. Заполнить переменные среды, убедиться, что service account имеет доступ к созданной вручную таблице.
 4. Запустить Fastify и инициализацию двух листов.
-5. Зарегистрировать Telegram webhook на `https://<render-host>/telegram/webhook` через небольшой скрипт `npm run webhook:set` или однократную setup-команду. Документировать выполнение в README.
+5. Setup-скрипт в Start Command автоматически регистрирует Telegram webhook на `https://<render-host>/telegram/webhook` перед запуском основного процесса. Отсутствие бота в группе не блокирует деплой; ошибки меню логируются как предупреждения. Документировать в README.
 
 Render Free может засыпать спустя 15 минут без входящих HTTP/WebSocket-сообщений, а пробуждение занимает время. Локальная файловая система непостоянна. Бесплатный workspace имеет **750 instance-hours в месяц**: один постоянно работающий сервис почти полностью использует лимит. Это не хостинг с гарантированным SLA.
 

@@ -51,3 +51,16 @@ export function callbackUpdate(data = 'list:1', chatId = -100123, botId = 123456
     },
   };
 }
+
+export function membershipUpdate(joining = true, chatId = -100123): Update {
+  const user = { id: 123456789, is_bot: true as const, first_name: 'Where Am I' };
+  return {
+    update_id: 3,
+    my_chat_member: {
+      chat: { id: chatId, type: 'supergroup', title: 'Travellers' },
+      from: { id: 1001, is_bot: false, first_name: 'Admin' }, date: 1,
+      old_chat_member: { status: joining ? 'left' : 'member', user },
+      new_chat_member: { status: joining ? 'member' : 'left', user },
+    },
+  };
+}

@@ -7,6 +7,18 @@ export type AppLogger = Pick<Logger, 'debug' | 'info' | 'warn' | 'error'>;
 export const silentLogger = pino({ enabled: false });
 const levels = new Set(['debug', 'info', 'warn', 'error', 'silent']);
 const networkCodes = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_SOCKET']);
+const telegramReasons = new Map([
+  ['bad request: chat not found', 'chat_not_found'],
+  ['bad request: chat_id_invalid', 'chat_id_invalid'],
+  ['bad request: group chat was upgraded to a supergroup chat', 'group_migrated'],
+  ['bad request: chat_admin_required', 'chat_admin_required'],
+  ['bad request: bot_command_invalid', 'invalid_command'],
+  ['bad request: bot_command_description_invalid', 'invalid_command_description'],
+  ['bad request: language_code_invalid', 'invalid_language_code'],
+  ['forbidden: bot was kicked from the group chat', 'bot_kicked'],
+  ['forbidden: bot was kicked from the supergroup chat', 'bot_kicked'],
+  ['forbidden: bot is not a member of the supergroup chat', 'bot_not_member'],
+]);
 
 export function createLogger(level: unknown = process.env.LOG_LEVEL, destination?: DestinationStream): Logger {
   return pino({
@@ -38,6 +50,10 @@ export function safeError(error: unknown, depth = 0): Record<string, string | nu
     error_type: error instanceof LocationError ? 'LocationError' : error instanceof GrammyError ? 'TelegramApiError' : 'Error',
   };
   if (error instanceof LocationError) fields.error_code = error.code;
+  if (error instanceof GrammyError) {
+    const reason = telegramReasons.get(error.description.toLowerCase());
+    if (reason) fields.telegram_reason = reason;
+  }
   if (typeof error !== 'object' || error === null) return fields;
   const value = error as Record<string, unknown>;
   if (value.name === 'AbortError' || value.name === 'TimeoutError' || value.name === 'SyntaxError') fields.error_type = value.name;
@@ -65,7 +81,7 @@ export function safeError(error: unknown, depth = 0): Record<string, string | nu
   return fields;
 }
 
-export async function logOperation<T>(logger: AppLogger, event: string, operation: () => Promise<T>, level: 'debug' | 'info' = 'info'): Promise<T> {
+export async function logOperation<T>(logger: AppLogger, event: string, operation: () => Promise<T>, level: 'debug' | 'info' = 'info', failureLevel: 'warn' | 'error' = 'error'): Promise<T> {
   const started = performance.now();
   logger.debug({ event: `${event}_started` });
   try {
@@ -73,7 +89,7 @@ export async function logOperation<T>(logger: AppLogger, event: string, operatio
     logger[level]({ event: `${event}_completed`, duration_ms: Math.round(performance.now() - started) });
     return result;
   } catch (error) {
-    logger.error({ event: `${event}_failed`, ...safeError(error), duration_ms: Math.round(performance.now() - started) });
+    logger[failureLevel]({ event: `${event}_failed`, ...safeError(error), duration_ms: Math.round(performance.now() - started) });
     throw error;
   }
 }

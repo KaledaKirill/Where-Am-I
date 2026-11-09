@@ -6,6 +6,7 @@ import { HELP_TEXT, placeLabel } from './formatting.js';
 import { parsePage, renderListPage } from './pagination.js';
 import { safeError, silentLogger } from '../logging.js';
 import type { AppLogger } from '../logging.js';
+import { registerGroupCommands } from './setup.js';
 
 export function errorText(error: unknown): string {
   if (!(error instanceof LocationError)) return 'Сервис временно недоступен. Попробуйте немного позже.';
@@ -43,6 +44,14 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
     } catch (error) {
       logger.error({ event: 'telegram_update_failed', update_id: ctx.update.update_id, ...safeError(error), duration_ms: Math.round(performance.now() - started) });
       throw error;
+    }
+  });
+
+  bot.on('my_chat_member', async (ctx) => {
+    const { old_chat_member: previous, new_chat_member: current } = ctx.myChatMember;
+    if (['left', 'kicked'].includes(previous.status) && ['member', 'administrator'].includes(current.status)) {
+      logger.info({ event: 'bot_added_to_group', update_id: ctx.update.update_id });
+      await registerGroupCommands(ctx.api, groupId, logger);
     }
   });
 

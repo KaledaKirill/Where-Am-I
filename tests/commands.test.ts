@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { registerCommands } from '../src/bot/commands.js';
 import { HELP_TEXT } from '../src/bot/formatting.js';
 import { current, env } from './fixtures.js';
-import { botFixture, callbackUpdate, messageUpdate } from './bot-fixture.js';
+import { botFixture, callbackUpdate, membershipUpdate, messageUpdate } from './bot-fixture.js';
 
 function setup() {
   const f = botFixture();
@@ -12,6 +12,33 @@ function setup() {
 }
 
 describe('Telegram commands', () => {
+  it('configures menus when added after deployment and immediately handles commands', async () => {
+    const f = setup();
+    await f.bot.handleUpdate(membershipUpdate());
+    const menus = f.calls.filter((call) => call.method === 'setMyCommands');
+    expect(menus).toHaveLength(2);
+    expect(menus[0]?.payload).toMatchObject({ scope: { type: 'chat', chat_id: '-100123' }, language_code: 'ru' });
+    expect(f.repo.history).toHaveLength(0);
+    await f.bot.handleUpdate(messageUpdate('/help'));
+    expect(f.calls.at(-1)?.payload.text).toBe(HELP_TEXT);
+  });
+
+  it('continues handling commands if configuring menus on join fails', async () => {
+    const f = setup();
+    f.transport.mockRejectedValueOnce(new Error('menu unavailable'));
+    await expect(f.bot.handleUpdate(membershipUpdate())).resolves.toBeUndefined();
+    await f.bot.handleUpdate(messageUpdate('/help'));
+    expect(f.calls.at(-1)?.payload.text).toBe(HELP_TEXT);
+  });
+
+  it('ignores bot departures and does not configure menus in other groups', async () => {
+    const f = setup();
+    await f.bot.handleUpdate(membershipUpdate(false));
+    await f.bot.handleUpdate(membershipUpdate(true, -999));
+    expect(f.calls).toHaveLength(0);
+    expect(f.repo.history).toHaveLength(0);
+  });
+
   it.each(['/help', '/start', '/help@WhereAmIBot'])('returns exactly two required lines for %s', async (command) => {
     const f = setup();
     await f.bot.handleUpdate(messageUpdate(command));

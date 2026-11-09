@@ -29,6 +29,10 @@ describe('safe structured logging', () => {
     expect(safeError({ name: 'super-secret', code: 'private-key' })).toEqual({ error_type: 'Error' });
     expect(safeError(new GrammyError('secret', { ok: false, error_code: 429, description: 'private-key' }, 'sendMessage', {})))
       .toMatchObject({ error_type: 'TelegramApiError', http_status: 429 });
+    expect(safeError(new GrammyError('secret', { ok: false, error_code: 400, description: 'Bad Request: chat not found' }, 'setMyCommands', {})))
+      .toMatchObject({ error_type: 'TelegramApiError', http_status: 400, telegram_reason: 'chat_not_found' });
+    expect(safeError(new GrammyError('secret', { ok: false, error_code: 400, description: 'Bad Request: secret-token' }, 'setMyCommands', {})))
+      .not.toHaveProperty('telegram_reason');
   });
 
   it('reports configuration field names without their values', () => {
