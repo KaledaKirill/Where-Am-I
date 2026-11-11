@@ -72,7 +72,7 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
       }
       const text = formatList(await service.listGroups());
       checkListLength(text);
-      await ctx.reply(text, { parse_mode: 'HTML' });
+      await ctx.reply(text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
       logger.info({ event: 'list_shown', update_id: ctx.update.update_id });
     } catch (error) { logFailure(ctx, 'list', error); await ctx.reply(errorText(error)); }
   });

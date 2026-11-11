@@ -33,7 +33,7 @@ export class PinnedMessageService {
     const id = stored && /^[1-9]\d*$/.test(stored) ? Number(stored) : null;
     if (id && Number.isSafeInteger(id)) {
       try {
-        await this.api.editMessageText(this.groupId, id, text, { parse_mode: 'HTML' });
+        await this.api.editMessageText(this.groupId, id, text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
       } catch (error) {
         if (error instanceof GrammyError && error.error_code === 400 && error.description.toLowerCase().includes('message to edit not found')) {
           await this.create(text);
@@ -49,7 +49,7 @@ export class PinnedMessageService {
   }
 
   private async create(text: string): Promise<void> {
-    const message = await this.api.sendMessage(this.groupId, text, { parse_mode: 'HTML' });
+    const message = await this.api.sendMessage(this.groupId, text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
     // Persist before pinning so a missing permission cannot cause new messages
     // on every check-in. A later update can finish pinning this same message.
     await this.repository.setSetting('pinned_message_id', String(message.message_id));

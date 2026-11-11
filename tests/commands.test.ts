@@ -33,6 +33,7 @@ describe('Telegram commands', () => {
     await f.bot.handleUpdate(messageUpdate('/list'));
     const pinnedText = f.calls.find((c) => c.method === 'editMessageText')?.payload.text;
     expect(f.calls.at(-1)?.payload.text).toBe(pinnedText);
+    expect(f.calls.at(-1)?.payload.link_preview_options).toEqual({ is_disabled: true });
     expect(pinnedText).toBe(formatList(await f.service.listGroups()));
   });
 

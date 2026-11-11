@@ -12,6 +12,9 @@ it('creates and stores one pin, serializes concurrent refreshes and edits after 
   await Promise.all([f.pinned.update(), f.pinned.update()]);
   expect(f.calls.filter((c) => c.method === 'sendMessage')).toHaveLength(1);
   expect(f.calls.find((c) => c.method === 'sendMessage')?.payload.text).toBe(formatList(await f.service.listGroups()));
+  expect(f.calls.filter((c) => c.method === 'sendMessage' || c.method === 'editMessageText').every((c) =>
+    (c.payload.link_preview_options as { is_disabled?: boolean } | undefined)?.is_disabled === true,
+  )).toBe(true);
   expect(f.repo.settings.get('pinned_message_id')).toBe('100');
   await new PinnedMessageService(f.repo, f.service, f.bot.api, env.TELEGRAM_GROUP_ID).update();
   expect(f.calls.filter((c) => c.method === 'editMessageText')).toHaveLength(2);
