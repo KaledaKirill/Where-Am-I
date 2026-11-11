@@ -3,6 +3,8 @@ import { loadConfig } from './config.js';
 import { createApp } from './app.js';
 import { createGoogleSheetsRepository } from './adapters/google-sheets-repository.js';
 import { LocationService } from './services/location-service.js';
+import { GeoapifyGeocoder } from './adapters/geoapify-geocoder.js';
+import { PinnedMessageService } from './services/pinned-message-service.js';
 import { createLogger, logOperation, safeError } from './logging.js';
 
 const logger = createLogger();
@@ -13,12 +15,21 @@ async function main(): Promise<void> {
   const config = loadConfig();
   startupStage = 'sheets_initialize';
   const repository = createGoogleSheetsRepository(config, logger.child({ component: 'google_sheets' }));
-  await repository.initialize();
-  const service = new LocationService(repository);
+  let migrationRequired = false;
+  try { await repository.initialize(); }
+  catch (error) {
+    if (!(error instanceof Error && error.message === 'sheets_migration_required')) throw error;
+    migrationRequired = true;
+    logger.warn({ event: 'sheets_migration_required' }, 'Новая версия запущена в ожидании ручной миграции. Данные не изменяются.');
+  }
+  const service = new LocationService(repository, new GeoapifyGeocoder(config.GEOAPIFY_API_KEY));
   const bot = new Bot(config.TELEGRAM_BOT_TOKEN, { client: { timeoutSeconds: 10 } });
   startupStage = 'telegram_initialize';
   await logOperation(logger, 'telegram_initialize', () => bot.init());
-  const app = createApp(config, service, bot, logger);
+  const pinned = new PinnedMessageService(repository, service, bot.api, config.TELEGRAM_GROUP_ID, logger);
+  startupStage = 'pinned_message_refresh';
+  if (!migrationRequired) await pinned.update();
+  const app = createApp(config, service, bot, logger, pinned);
   let closing = false;
   const shutdown = async (signal: string) => {
     if (closing) return;

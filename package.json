@@ -13,7 +13,8 @@
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "webhook:set": "tsx --env-file-if-exists=.env scripts/register-webhook.ts"
+    "webhook:set": "tsx --env-file-if-exists=.env scripts/register-webhook.ts",
+    "migrate:locations": "tsx --env-file-if-exists=.env scripts/migrate-locations.ts"
   },
   "dependencies": {
     "@googleapis/sheets": "^18.1.2",

@@ -11,6 +11,7 @@ const configSchema = z.object({
   TELEGRAM_GROUP_ID: z.string().regex(/^-\d+$/),
   TELEGRAM_WEBHOOK_SECRET: z.string().regex(/^[A-Za-z0-9_-]{1,256}$/),
   GOOGLE_SPREADSHEET_ID: z.string().regex(/^[A-Za-z0-9_-]+$/),
+  GEOAPIFY_API_KEY: z.string().trim().min(1),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: z.email(),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: z.string().transform((value) => value.replace(/\\n/g, '\n'))
     .refine((value) => value.includes('-----BEGIN PRIVATE KEY-----') && value.includes('-----END PRIVATE KEY-----'), 'Некорректный PEM ключ'),

@@ -1,177 +1,121 @@
-import { GrammyError } from 'grammy';
 import { describe, expect, it, vi } from 'vitest';
 import { registerCommands } from '../src/bot/commands.js';
-import { HELP_TEXT } from '../src/bot/formatting.js';
-import { current, env } from './fixtures.js';
-import { botFixture, callbackUpdate, membershipUpdate, messageUpdate } from './bot-fixture.js';
+import { formatList, HELP_TEXT, START_TEXT } from '../src/bot/formatting.js';
+import { env, current } from './fixtures.js';
+import { botFixture, callbackUpdate, locationUpdate, membershipUpdate, messageUpdate } from './bot-fixture.js';
 
 function setup() {
   const f = botFixture();
-  registerCommands(f.bot, f.service, env.TELEGRAM_GROUP_ID);
+  registerCommands(f.bot, f.service, env.TELEGRAM_GROUP_ID, undefined, f.pinned);
   return f;
 }
 
 describe('Telegram commands', () => {
-  it('configures menus when added after deployment and immediately handles commands', async () => {
+  it('sends a location request keyboard and Russian instructions in private chat', async () => {
     const f = setup();
-    await f.bot.handleUpdate(membershipUpdate());
-    const menus = f.calls.filter((call) => call.method === 'setMyCommands');
-    expect(menus).toHaveLength(2);
-    expect(menus[0]?.payload).toMatchObject({ scope: { type: 'chat', chat_id: '-100123' }, language_code: 'ru' });
-    expect(f.repo.history).toHaveLength(0);
-    await f.bot.handleUpdate(messageUpdate('/help'));
+    await f.bot.handleUpdate(messageUpdate('/start', 1001));
+    expect(f.calls[0]?.payload).toMatchObject({ text: START_TEXT, reply_markup: { keyboard: [[{ text: '📍 Отправить геолокацию', request_location: true }]] } });
+    await f.bot.handleUpdate(messageUpdate('/help@WhereAmIBot', 1001));
     expect(f.calls.at(-1)?.payload.text).toBe(HELP_TEXT);
-  });
-
-  it('continues handling commands if configuring menus on join fails', async () => {
-    const f = setup();
-    f.transport.mockRejectedValueOnce(new Error('menu unavailable'));
-    await expect(f.bot.handleUpdate(membershipUpdate())).resolves.toBeUndefined();
-    await f.bot.handleUpdate(messageUpdate('/help'));
-    expect(f.calls.at(-1)?.payload.text).toBe(HELP_TEXT);
-  });
-
-  it('ignores bot departures and does not configure menus in other groups', async () => {
-    const f = setup();
-    await f.bot.handleUpdate(membershipUpdate(false));
-    await f.bot.handleUpdate(membershipUpdate(true, -999));
-    expect(f.calls).toHaveLength(0);
     expect(f.repo.history).toHaveLength(0);
   });
 
-  it.each(['/help', '/start', '/help@WhereAmIBot'])('returns exactly two required lines for %s', async (command) => {
+  it('checks membership before geocoding, saves repeats, refreshes pin and confirms', async () => {
     const f = setup();
-    await f.bot.handleUpdate(messageUpdate(command));
-    expect(f.calls[0]?.payload.text).toBe(HELP_TEXT);
-    expect(f.repo.history).toHaveLength(0);
-  });
-
-  it('accepts mentions, escapes success and keeps repeated check-ins in history', async () => {
-    const f = setup();
-    await f.bot.handleUpdate(messageUpdate('/set@WhereAmIBot Берлин, Германия'));
-    await f.bot.handleUpdate(messageUpdate('/set Берлин, Германия'));
+    await f.bot.handleUpdate(locationUpdate());
+    await f.bot.handleUpdate(locationUpdate());
+    expect(f.calls[0]?.method).toBe('getChatMember');
     expect(f.repo.users.size).toBe(1);
     expect(f.repo.history).toHaveLength(2);
-    expect(f.calls[0]?.payload.text).toBe('✅ Отметка сохранена: Берлин, Германия');
+    expect(f.calls.filter((c) => c.method === 'sendMessage' && c.payload.chat_id === env.TELEGRAM_GROUP_ID)).toHaveLength(1);
+    expect(f.calls.at(-1)?.payload.text).toBe('✅ Вы отметились: Берлин, Германия');
+    expect(f.repo.settings.get('pinned_message_id')).toBe('100');
     await f.bot.handleUpdate(messageUpdate('/list'));
-    expect(f.calls.at(-1)?.payload.text).toContain('Анна &lt;&amp;&gt;');
+    const pinnedText = f.calls.find((c) => c.method === 'editMessageText')?.payload.text;
+    expect(f.calls.at(-1)?.payload.text).toBe(pinnedText);
+    expect(pinnedText).toBe(formatList(await f.service.listGroups()));
   });
 
-  it('preserves unverified text and escapes it in every displayed location', async () => {
+  it.each(['left', 'kicked', 'restricted'])('does not geocode or save for nonmembers: %s', async (status) => {
     const f = setup();
-    const location = '<b>Выдуманный город</b>, Страна & мир';
-    await f.bot.handleUpdate(messageUpdate(`/set ${location}`));
-    expect(f.repo.users.get('1001')?.location).toBe(location);
-    expect(f.calls.at(-1)?.payload.text).toContain('&lt;b&gt;Выдуманный город&lt;/b&gt;, Страна &amp; мир');
-    await f.bot.handleUpdate(messageUpdate('/me'));
-    expect(f.calls.at(-1)?.payload.text).toContain('&lt;b&gt;Выдуманный город&lt;/b&gt;, Страна &amp; мир');
-    await f.bot.handleUpdate(messageUpdate('/list'));
-    expect(f.calls.at(-1)?.payload.text).toContain('&lt;b&gt;Выдуманный город&lt;/b&gt;, Страна &amp; мир');
-  });
-
-  it('ignores other bots, ordinary messages and departures', async () => {
-    const f = setup();
-    await f.bot.handleUpdate(messageUpdate('/set@AnotherBot Берлин'));
-    await f.bot.handleUpdate(messageUpdate('Я сейчас в Берлине'));
-    await f.bot.handleUpdate({ update_id: 5, message: {
-      message_id: 20, date: 1, chat: { id: -100123, type: 'supergroup', title: 'Travellers' },
-      from: { id: 1001, is_bot: false, first_name: 'Анна' },
-      left_chat_member: { id: 1001, is_bot: false, first_name: 'Анна' },
-    } });
-    expect(f.calls).toHaveLength(0);
-  });
-
-  it('does not access repositories in private and unauthorized chats', async () => {
-    const f = setup();
-    const read = vi.spyOn(f.repo, 'listUsers');
-    const me = vi.spyOn(f.repo, 'getUser');
-    for (const id of [1001, -999]) for (const command of ['/set Берлин', '/list', '/me', '/help']) {
-      await f.bot.handleUpdate(messageUpdate(command, id));
-    }
-    await f.bot.handleUpdate(callbackUpdate('list:1', -999));
-    expect(read).not.toHaveBeenCalled();
-    expect(me).not.toHaveBeenCalled();
-    expect(f.calls.map((call) => call.method)).toEqual(['answerCallbackQuery']);
-  });
-
-  it('rejects anonymous senders and messages without a user', async () => {
-    const f = setup();
-    const anonymous = messageUpdate('/set Берлин Германия');
-    if (!anonymous.message) throw new Error('fixture');
-    anonymous.message.sender_chat = { id: -100123, type: 'supergroup', title: 'Travellers' };
-    await f.bot.handleUpdate(anonymous);
-    delete anonymous.message.sender_chat;
-    Reflect.deleteProperty(anonymous.message, 'from');
-    await f.bot.handleUpdate(anonymous);
+    f.transport.mockResolvedValueOnce({ ok: true, result: { status, is_member: false } });
+    await f.bot.handleUpdate(locationUpdate());
+    expect(f.geocoder.reverse).not.toHaveBeenCalled();
     expect(f.repo.history).toHaveLength(0);
+    expect(f.calls.at(-1)?.payload.text).toContain('только участники');
   });
 
-  it('shows current location and empty states from storage', async () => {
+  it('does not allow membership API failure to bypass authorization', async () => {
     const f = setup();
-    await f.bot.handleUpdate(messageUpdate('/me'));
-    expect(f.calls.at(-1)?.payload.text).toContain('пока нет отметки');
-    await f.bot.handleUpdate(messageUpdate('/list'));
-    expect(f.calls.at(-1)?.payload.text).toContain('Пока никто не отметился');
-    f.repo.users.set('1001', current);
-    await f.bot.handleUpdate(messageUpdate('/me'));
-    expect(f.calls.at(-1)?.payload.text).toBe('Ваша последняя отметка: Берлин, Германия\nОбновлено: 09.11.2026');
-  });
-
-  it('never confirms success after failed storage', async () => {
-    const f = setup();
-    vi.spyOn(f.repo, 'saveLocation').mockRejectedValue(new Error('private key'));
-    await f.bot.handleUpdate(messageUpdate('/set Берлин Германия'));
-    expect(f.calls[0]?.payload.text).toContain('временно недоступен');
-    expect(f.calls[0]?.payload.text).not.toContain('сохранена');
-    expect(f.calls[0]?.payload.text).not.toContain('private key');
-  });
-
-  it.each(['/set', '/set https://example.org', `/set ${'А'.repeat(121)}`])('does not write invalid input %s', async (command) => {
-    const f = setup();
-    await f.bot.handleUpdate(messageUpdate(command));
-    expect(f.repo.history).toHaveLength(0);
-    expect(f.calls[0]?.payload.text).not.toContain('сохранена');
-  });
-
-  it('allows another member to paginate and re-reads current Users without writes', async () => {
-    const f = setup();
-    for (let i = 1; i <= 25; i++) f.repo.users.set(String(i), { ...current, user_id: String(i) });
-    const read = vi.spyOn(f.repo, 'listUsers');
-    const write = vi.spyOn(f.repo, 'saveLocation');
-    await f.bot.handleUpdate(callbackUpdate());
-    expect(f.calls[0]?.method).toBe('editMessageText');
-    expect(f.calls[0]?.payload.text).toContain('Страница 2 из 2');
-    expect(f.calls.at(-1)?.method).toBe('answerCallbackQuery');
-    f.repo.users.clear();
-    await f.bot.handleUpdate(callbackUpdate());
-    expect(f.calls.findLast((call) => call.method === 'editMessageText')?.payload.text).toContain('Пока никто');
-    expect(read).toHaveBeenCalledTimes(2);
-    expect(write).not.toHaveBeenCalled();
-  });
-
-  it('acknowledges corrupt callbacks and foreign bot messages without reading data', async () => {
-    const f = setup();
-    const read = vi.spyOn(f.repo, 'listUsers');
-    await f.bot.handleUpdate(callbackUpdate('list:-1'));
-    await f.bot.handleUpdate(callbackUpdate('list:1', -100123, 999));
-    const inaccessible = callbackUpdate();
-    if (!inaccessible.callback_query?.message) throw new Error('fixture');
-    inaccessible.callback_query.message = { message_id: 100, date: 0, chat: { id: -100123, type: 'supergroup', title: 'Travellers' } };
-    await f.bot.handleUpdate(inaccessible);
-    expect(read).not.toHaveBeenCalled();
-    expect(f.calls.map((call) => call.method)).toEqual(['answerCallbackQuery', 'answerCallbackQuery', 'answerCallbackQuery']);
-  });
-
-  it('acknowledges callback failures and tolerates unchanged messages', async () => {
-    const f = setup();
-    vi.spyOn(f.repo, 'listUsers').mockRejectedValueOnce(new Error('storage'));
-    await f.bot.handleUpdate(callbackUpdate());
+    f.transport.mockRejectedValueOnce(new Error('secret'));
+    await f.bot.handleUpdate(locationUpdate());
+    expect(f.geocoder.reverse).not.toHaveBeenCalled();
     expect(f.calls.at(-1)?.payload.text).toContain('временно недоступен');
-    f.transport.mockRejectedValueOnce(new GrammyError('editMessageText', {
-      ok: false, error_code: 400, description: 'Bad Request: message is not modified',
-    }, 'editMessageText', {}));
+  });
+
+  it('does not create a partial check-in after geocoding or storage failure', async () => {
+    const f = setup();
+    f.geocoder.reverse.mockRejectedValueOnce(new Error('apiKey=secret'));
+    await f.bot.handleUpdate(locationUpdate());
+    expect(f.repo.history).toHaveLength(0);
+    expect(f.calls.at(-1)?.payload.text).toContain('Не удалось определить');
+    vi.spyOn(f.repo, 'saveLocation').mockRejectedValue(new Error('secret'));
+    await f.bot.handleUpdate(locationUpdate());
+    expect(f.calls.at(-1)?.payload.text).toContain('временно недоступен');
+    expect(f.repo.history).toHaveLength(0);
+  });
+
+  it('confirms saved data after a pin error and retries on the next successful location', async () => {
+    const f = setup();
+    const getSetting = vi.spyOn(f.repo, 'getSetting').mockRejectedValueOnce(new Error('Sheets unavailable'));
+    await f.bot.handleUpdate(locationUpdate());
+    expect(f.repo.history).toHaveLength(1);
+    expect(f.calls.at(-1)?.payload.text).toContain('✅ Вы отметились');
+    await f.bot.handleUpdate(locationUpdate());
+    expect(getSetting).toHaveBeenCalledTimes(2);
+    expect(f.repo.history).toHaveLength(2);
+    expect(f.repo.settings.get('pinned_message_id')).toBe('100');
+  });
+
+  it('ignores group locations, removed commands, ordinary text and edited live locations', async () => {
+    const f = setup();
+    for (const text of ['/start', '/help', '/me', '/set Берлин', 'Привет', '/list@AnotherBot']) await f.bot.handleUpdate(messageUpdate(text));
+    await f.bot.handleUpdate(locationUpdate(-100123));
+    await f.bot.handleUpdate(messageUpdate('/list', -999));
+    const update = locationUpdate();
+    if (!update.message) throw new Error('fixture');
+    await f.bot.handleUpdate({ update_id: 4, edited_message: { ...update.message, edit_date: 2 } });
+    expect(f.calls).toHaveLength(0);
+    expect(f.repo.history).toHaveLength(0);
+  });
+
+  it('allows list in target group and member private chat, denies private outsiders', async () => {
+    const f = setup();
+    f.repo.users.set(current.user_id, current);
+    await f.bot.handleUpdate(messageUpdate('/list'));
+    const groupText = f.calls.at(-1)?.payload.text;
+    await f.bot.handleUpdate(messageUpdate('/list', 1001));
+    expect(f.calls.at(-1)?.payload.text).toBe(groupText);
+    f.transport.mockResolvedValueOnce({ ok: true, result: { status: 'left' } });
+    await f.bot.handleUpdate(messageUpdate('/list', 1001));
+    expect(f.calls.at(-1)?.payload.text).toContain('только участникам');
+  });
+
+  it('logs an oversized list and replies safely', async () => {
+    const f = setup();
+    f.repo.users.set('1', { ...current, user_id: '1', display_name: 'А'.repeat(5000) });
+    await expect(f.bot.handleUpdate(messageUpdate('/list'))).resolves.toBeUndefined();
+    expect(f.calls.at(-1)?.payload.text).toContain('превышает лимит');
+  });
+
+  it('configures only list when added to the group, ignores departures and acknowledges old callbacks', async () => {
+    const f = setup();
+    await f.bot.handleUpdate(membershipUpdate());
+    expect(f.calls.filter((c) => c.method === 'setMyCommands')).toHaveLength(2);
+    expect(f.calls[0]?.payload.commands).toEqual([{ command: 'list', description: 'Где сейчас путешественники' }]);
+    await f.bot.handleUpdate(membershipUpdate(false));
     await f.bot.handleUpdate(callbackUpdate());
     expect(f.calls.at(-1)?.method).toBe('answerCallbackQuery');
-    expect(f.calls.at(-1)?.payload.text).toBeUndefined();
+    expect(f.repo.history).toHaveLength(0);
   });
 });

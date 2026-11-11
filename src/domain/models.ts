@@ -4,14 +4,28 @@ export interface TelegramUser {
   username: string | null;
 }
 
-export interface CurrentUser extends TelegramUser {
+export interface Coordinates {
+  latitude: number;
+  longitude: number;
+}
+
+export interface Place {
+  city: string;
+  region: string;
+  country: string;
+}
+
+export interface LocatedPlace extends Place, Coordinates {
+  coordinate_source: 'telegram' | 'geocoded';
   location: string;
+}
+
+export interface CurrentUser extends TelegramUser, LocatedPlace {
   updated_at: string;
 }
 
-export interface LocationHistoryEntry {
+export interface LocationHistoryEntry extends LocatedPlace {
   user_id: string;
-  location: string;
   recorded_at: string;
 }
 
@@ -21,7 +35,7 @@ export interface LocationGroup {
   users: CurrentUser[];
 }
 
-export type LocationErrorCode = 'empty_input' | 'invalid_input' | 'unavailable';
+export type LocationErrorCode = 'invalid_input' | 'geocoding_failed' | 'unavailable';
 
 export class LocationError extends Error {
   constructor(public readonly code: LocationErrorCode, options?: ErrorOptions) {

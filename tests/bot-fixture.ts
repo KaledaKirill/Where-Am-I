@@ -3,7 +3,8 @@ import type { Transformer } from 'grammy';
 import type { Update } from 'grammy/types';
 import { vi } from 'vitest';
 import { LocationService } from '../src/services/location-service.js';
-import { env, MemoryRepository } from './fixtures.js';
+import { env, MemoryRepository, place, coordinates } from './fixtures.js';
+import { PinnedMessageService } from '../src/services/pinned-message-service.js';
 
 export function botFixture() {
   const info = { id: 123456789, is_bot: true as const, first_name: 'Where Am I', username: 'WhereAmIBot',
@@ -12,8 +13,9 @@ export function botFixture() {
     allows_users_to_create_topics: false, can_manage_bots: false, supports_join_request_queries: false };
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN, { botInfo: info });
   const calls: { method: string; payload: Record<string, unknown> }[] = [];
-  const transport = vi.fn(async (_previous: unknown, method: string, payload: Record<string, unknown>) => {
+  const transport = vi.fn(async (_previous: unknown, method: string, payload: Record<string, unknown>): Promise<{ ok: boolean; result: unknown }> => {
     calls.push({ method, payload });
+    if (method === 'getChatMember') return { ok: true, result: { status: 'member', user: { id: 1001, is_bot: false, first_name: 'Anna' } } };
     if (method === 'sendMessage' || method === 'editMessageText') return { ok: true, result: {
       message_id: 100, date: 1, chat: { id: -100123, type: 'supergroup', title: 'Travellers' }, from: info, text: payload.text,
     } };
@@ -21,8 +23,10 @@ export function botFixture() {
   });
   bot.api.config.use(transport as unknown as Transformer);
   const repo = new MemoryRepository();
-  const service = new LocationService(repo);
-  return { bot, repo, service, calls, transport, info };
+  const geocoder = { reverse: vi.fn().mockResolvedValue(place) };
+  const service = new LocationService(repo, geocoder);
+  const pinned = new PinnedMessageService(repo, service, bot.api, env.TELEGRAM_GROUP_ID);
+  return { bot, repo, service, calls, transport, info, geocoder, pinned };
 }
 
 export function messageUpdate(text: string, chatId = -100123, userId = 1001): Update {
@@ -49,6 +53,14 @@ export function callbackUpdate(data = 'list:1', chatId = -100123, botId = 123456
       },
     },
   };
+}
+
+export function locationUpdate(chatId = 1001): Update {
+  const update = messageUpdate('', chatId);
+  if (!update.message) throw new Error('fixture');
+  delete update.message.text;
+  update.message.location = coordinates;
+  return update;
 }
 
 export function membershipUpdate(joining = true, chatId = -100123): Update {

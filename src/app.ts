@@ -6,21 +6,26 @@ import type { LocationService } from './services/location-service.js';
 import { registerCommands } from './bot/commands.js';
 import { createLogger, safeError } from './logging.js';
 import type { Logger } from 'pino';
+import type { PinnedMessageService } from './services/pinned-message-service.js';
 
-export function createApp(config: Config, service: LocationService, bot = new Bot(config.TELEGRAM_BOT_TOKEN, { client: { timeoutSeconds: 10 } }), logger: boolean | Logger = false) {
+export function createApp(config: Config, service: LocationService, bot = new Bot(config.TELEGRAM_BOT_TOKEN, { client: { timeoutSeconds: 10 } }), logger: boolean | Logger = false, pinned?: Pick<PinnedMessageService, 'update'>) {
   const loggerInstance = typeof logger === 'object' ? logger : logger ? createLogger(config.LOG_LEVEL) : undefined;
   const app = Fastify({
     ...(loggerInstance ? { loggerInstance } : { logger: false }),
     logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 1024 * 1024,
   });
-  registerCommands(bot, service, config.TELEGRAM_GROUP_ID, app.log);
+  registerCommands(bot, service, config.TELEGRAM_GROUP_ID, app.log, pinned);
   app.addHook('onResponse', async (request, reply) => {
     if (request.routeOptions.url === '/telegram/webhook') {
       request.log.debug({ event: 'webhook_request_completed', status_code: reply.statusCode, duration_ms: Math.round(reply.elapsedTime) });
     }
   });
-  app.get('/health', async () => ({ status: 'ok' }));
+  app.get('/health', async (_request, reply) => {
+    reply.header('X-App-Version', '3.0');
+    reply.header('X-App-Revision', process.env.RENDER_GIT_COMMIT ?? 'development');
+    return { status: 'ok' };
+  });
   app.post('/telegram/webhook', {
     onRequest: async (request, reply) => {
       const supplied = request.headers['x-telegram-bot-api-secret-token'];

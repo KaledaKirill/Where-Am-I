@@ -15,6 +15,7 @@ const telegramReasons = new Map([
   ['bad request: bot_command_invalid', 'invalid_command'],
   ['bad request: bot_command_description_invalid', 'invalid_command_description'],
   ['bad request: language_code_invalid', 'invalid_language_code'],
+  ['bad request: message is too long', 'message_too_long'],
   ['forbidden: bot was kicked from the group chat', 'bot_kicked'],
   ['forbidden: bot was kicked from the supergroup chat', 'bot_kicked'],
   ['forbidden: bot is not a member of the supergroup chat', 'bot_not_member'],
@@ -72,8 +73,10 @@ export function safeError(error: unknown, depth = 0): Record<string, string | nu
     if (error.message.startsWith('Некорректная конфигурация:')) {
       fields.error_code = 'invalid_configuration';
       fields.invalid_fields = (error.message.split(':')[1] ?? '').split(',').map((key) => key.trim())
-        .filter((key) => /^(NODE_ENV|LOG_LEVEL|PORT|PUBLIC_BASE_URL|TELEGRAM_BOT_TOKEN|TELEGRAM_GROUP_ID|TELEGRAM_WEBHOOK_SECRET|GOOGLE_SPREADSHEET_ID|GOOGLE_SERVICE_ACCOUNT_EMAIL|GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)$/.test(key));
-    } else if (error.message === 'Некорректные или повторные записи Users') fields.error_code = 'invalid_user_rows';
+        .filter((key) => /^(NODE_ENV|LOG_LEVEL|PORT|PUBLIC_BASE_URL|TELEGRAM_BOT_TOKEN|TELEGRAM_GROUP_ID|TELEGRAM_WEBHOOK_SECRET|GOOGLE_SPREADSHEET_ID|GOOGLE_SERVICE_ACCOUNT_EMAIL|GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY|GEOAPIFY_API_KEY)$/.test(key));
+    } else if (error.message === 'sheets_migration_required') fields.error_code = 'sheets_migration_required';
+    else if (error.message === 'list_too_long') fields.error_code = 'list_too_long';
+    else if (error.message === 'Некорректные или повторные записи Users') fields.error_code = 'invalid_user_rows';
   }
   return fields;
 }

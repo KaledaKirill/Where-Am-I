@@ -6,7 +6,7 @@ import { loadConfig } from '../src/config.js';
 import { registerCommands } from '../src/bot/commands.js';
 import { createApp } from '../src/app.js';
 import { registerWebhook } from '../scripts/register-webhook.js';
-import { botFixture, messageUpdate, callbackUpdate } from './bot-fixture.js';
+import { botFixture, messageUpdate, callbackUpdate, locationUpdate } from './bot-fixture.js';
 import { env } from './fixtures.js';
 import { captureLogs } from './logging-fixture.js';
 
@@ -75,20 +75,18 @@ describe('important application events', () => {
     const f = botFixture();
     const capture = captureLogs();
     registerCommands(f.bot, f.service, env.TELEGRAM_GROUP_ID, capture.logger);
-    await f.bot.handleUpdate(messageUpdate('/set Берлин, Германия'));
+    await f.bot.handleUpdate(locationUpdate());
     await f.bot.handleUpdate(messageUpdate('/list'));
-    await f.bot.handleUpdate(messageUpdate('/me'));
-    await f.bot.handleUpdate(messageUpdate('/help'));
+    await f.bot.handleUpdate(messageUpdate('/help', 1001));
     await f.bot.handleUpdate(callbackUpdate('list:0'));
-    await f.bot.handleUpdate(messageUpdate('/set'));
     await f.bot.handleUpdate(messageUpdate('/list', -999));
     vi.spyOn(f.repo, 'saveLocation').mockRejectedValue(sensitiveError);
-    await f.bot.handleUpdate(messageUpdate('/set Берлин, Германия'));
+    await f.bot.handleUpdate(locationUpdate());
     expect(capture.records.filter((line) => line.event === 'location_saved')).toHaveLength(1);
     expect(capture.records.map((line) => line.event)).toEqual(expect.arrayContaining([
-      'list_shown', 'location_shown', 'help_shown', 'list_page_changed', 'command_rejected', 'telegram_access_denied', 'command_failed',
+      'list_shown', 'help_shown', 'telegram_access_denied', 'command_failed',
     ]));
-    expect(capture.records.find((line) => line.event === 'command_failed')).toMatchObject({ action: 'set', update_id: 1, http_status: 503 });
+    expect(capture.records.find((line) => line.event === 'command_failed')).toMatchObject({ action: 'location', update_id: 1, http_status: 503 });
     for (const secret of ['Берлин', 'Германия', 'Анна', 'anna', '1001', 'super-secret', 'private-key']) expect(capture.output()).not.toContain(secret);
   });
 
@@ -96,8 +94,8 @@ describe('important application events', () => {
     const f = botFixture();
     const capture = captureLogs();
     registerCommands(f.bot, f.service, env.TELEGRAM_GROUP_ID, capture.logger);
-    f.transport.mockRejectedValue(sensitiveError);
-    await expect(f.bot.handleUpdate(messageUpdate('/set Берлин Германия'))).rejects.toThrow();
+    f.transport.mockResolvedValueOnce({ ok: true, result: { status: 'member' } }).mockRejectedValue(sensitiveError);
+    await expect(f.bot.handleUpdate(locationUpdate())).rejects.toThrow();
     expect(capture.records.map((line) => line.event)).toEqual(expect.arrayContaining(['location_saved', 'command_failed', 'telegram_update_failed']));
     expect(capture.output()).not.toContain('super-secret');
     expect(f.repo.history).toHaveLength(1);
