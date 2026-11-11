@@ -118,4 +118,24 @@ describe('Telegram commands', () => {
     expect(f.calls.at(-1)?.method).toBe('answerCallbackQuery');
     expect(f.repo.history).toHaveLength(0);
   });
+
+  it('refreshes the group menu and pin when later promoted to administrator', async () => {
+    const f = setup();
+    f.repo.users.set(current.user_id, current);
+    const update = membershipUpdate();
+    if (!update.my_chat_member) throw new Error('fixture');
+    const user = update.my_chat_member.new_chat_member.user;
+    update.my_chat_member.old_chat_member = { status: 'member', user };
+    update.my_chat_member.new_chat_member = {
+      status: 'administrator', user, can_be_edited: false, is_anonymous: false,
+      can_manage_chat: true, can_delete_messages: false, can_manage_video_chats: false,
+      can_restrict_members: false, can_promote_members: false, can_change_info: false,
+      can_invite_users: false, can_post_stories: false, can_edit_stories: false,
+      can_delete_stories: false, can_pin_messages: true, can_send_welcome_messages: false,
+    };
+    await f.bot.handleUpdate(update);
+    expect(f.calls.filter((c) => c.method === 'setMyCommands')).toHaveLength(2);
+    expect(f.calls.some((c) => c.method === 'pinChatMessage')).toBe(true);
+    expect(f.repo.history).toHaveLength(0);
+  });
 });

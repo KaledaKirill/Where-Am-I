@@ -1,4 +1,4 @@
-﻿import { vi } from 'vitest';
+import { vi } from 'vitest';
 import type { sheets_v4 } from '@googleapis/sheets';
 import { GoogleSheetsRepository } from '../src/adapters/google-sheets-repository.js';
 import type { SheetsClient } from '../src/adapters/google-sheets-repository.js';
@@ -46,4 +46,3 @@ export function fakeSheets(initial: Record<string, (string | number)[][]> = {}, 
   const repo = new GoogleSheetsRepository(client, 'sheet-id', logger);
   return { repo, client, get, valuesGet, batchUpdate, tables };
 }
-

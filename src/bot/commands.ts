@@ -36,8 +36,11 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
 
   bot.on('my_chat_member', async (ctx) => {
     const { old_chat_member: previous, new_chat_member: current } = ctx.myChatMember;
-    if (String(ctx.chat.id) === groupId && ['left', 'kicked'].includes(previous.status) && ['member', 'administrator'].includes(current.status)) {
+    const joined = ['left', 'kicked'].includes(previous.status) && ['member', 'administrator'].includes(current.status);
+    const promoted = current.status === 'administrator' && previous.status !== 'administrator';
+    if (String(ctx.chat.id) === groupId && (joined || promoted)) {
       await registerGroupCommands(ctx.api, groupId, logger);
+      if (promoted) await pinned?.update();
     }
   });
 
