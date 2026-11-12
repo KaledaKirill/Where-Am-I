@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Update } from 'grammy/types';
 import { registerCommands } from '../src/bot/commands.js';
+import { GeoapifyGeocoder } from '../src/adapters/geoapify-geocoder.js';
 import { BUTTONS, formatListParts } from '../src/bot/formatting.js';
 import { botFixture, locationUpdate, messageUpdate } from './bot-fixture.js';
 import { candidate, current, env } from './fixtures.js';
@@ -25,6 +26,123 @@ function selection(data: string, userId = 1001): Update {
 }
 
 describe('private dialogs', () => {
+  it('keeps destination mode after a rejected typo and stores the corrected place only as a destination', async () => {
+    const f = setup();
+    await f.bot.handleUpdate(locationUpdate());
+    const before = structuredClone(f.repo.users.get('1001'));
+    const pin = vi.spyOn(f.pinned, 'update');
+    f.geocoder.search.mockResolvedValueOnce([]).mockResolvedValueOnce([{ ...candidate, city: 'Москва', region: 'Москва', country: 'Россия', country_code: 'ru' }]);
+    await f.bot.handleUpdate(messageUpdate('Моск Россия', 1001));
+    expect(f.calls.at(-1)?.payload.text).toContain('Продолжаем ввод пункта назначения');
+    await f.bot.handleUpdate(messageUpdate('Москва Россия', 1001));
+    expect(f.repo.users.get('1001')).toMatchObject({ ...before, destination: { city: 'Москва', country: 'Россия' } });
+    expect(f.calls.at(-1)?.payload.text).toContain('✈️ Планы сохранены: Москва, Россия');
+    expect(f.repo.history).toHaveLength(1);
+    expect(pin).not.toHaveBeenCalled();
+  });
+
+  it('requires city and country in destination entry using the same actual adapter validation as current marks', async () => {
+    const f = setup();
+    await f.bot.handleUpdate(locationUpdate());
+    const result = { city: 'Москва', state: 'Москва', country: 'Россия', country_code: 'ru', result_type: 'city', lat: 55.75, lon: 37.61,
+      rank: { confidence: 1, match_type: 'full_match' } };
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response(JSON.stringify({ results: [result], query: { parsed: { country: 'Россия' } } })));
+    const geocoder = new GeoapifyGeocoder('test-key', fetcher);
+    f.geocoder.search.mockImplementation((query: string, settlementsOnly: boolean) => geocoder.search(query, settlementsOnly));
+    for (const text of ['Москва', 'Россия']) {
+      await f.bot.handleUpdate(messageUpdate(text, 1001));
+      expect(f.repo.users.get('1001')?.destination).toBeNull();
+      expect(f.calls.at(-1)?.payload.text).toContain('Продолжаем ввод пункта назначения');
+      expect(f.geocoder.search).toHaveBeenLastCalledWith(text, true);
+    }
+    await f.bot.handleUpdate(messageUpdate('Москва Россия', 1001));
+    expect(f.repo.users.get('1001')?.destination).toMatchObject({ city: 'Москва', country_code: 'ru' });
+    expect(f.repo.history).toHaveLength(1);
+  });
+
+  it.each(['current', 'destination', 'find'] as const)('retains %s mode through malformed input, missing places and provider errors', async (mode) => {
+    const f = setup();
+    f.repo.users.set('1001', { ...current, destination: candidate });
+    await f.bot.handleUpdate(messageUpdate(mode === 'current' ? BUTTONS.text : mode === 'find' ? '/find' : '/destination', 1001));
+    const before = structuredClone(f.repo.users.get('1001'));
+    await f.bot.handleUpdate(messageUpdate('???', 1001));
+    expect(f.geocoder.search).not.toHaveBeenCalled();
+    f.geocoder.search.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('provider offline')).mockResolvedValue([candidate]);
+    for (const text of ['НетТакогоМеста Россия', 'Берлн Германия']) {
+      await f.bot.handleUpdate(messageUpdate(text, 1001));
+      expect(f.geocoder.search).toHaveBeenLastCalledWith(text, mode !== 'find');
+      expect(f.repo.users.get('1001')).toEqual(before);
+      expect(f.repo.history).toHaveLength(0);
+      expect(String(f.calls.at(-1)?.payload.text)).toContain(mode === 'destination' ? 'ввод пункта назначения' : mode === 'find' ? 'поиск путешественников' : 'отметку текущего местоположения');
+    }
+    await f.bot.handleUpdate(messageUpdate('Берлин Германия', 1001));
+    expect(f.geocoder.search).toHaveBeenLastCalledWith('Берлин Германия', mode !== 'find');
+    expect(f.repo.history).toHaveLength(mode === 'current' ? 1 : 0);
+    expect(f.calls.at(-1)?.payload.text).toContain(mode === 'destination' ? 'Планы сохранены' : mode === 'find' ? 'Сейчас находятся здесь' : 'Куда направляешься');
+  });
+
+  it.each(['destination', 'find'] as const)('keeps %s mode after a failed replacement geolocation', async (mode) => {
+    const f = setup();
+    f.repo.users.set('1001', { ...current, destination: candidate });
+    await f.bot.handleUpdate(messageUpdate(mode === 'find' ? '/find' : '/destination', 1001));
+    f.geocoder.reverse.mockRejectedValueOnce(new Error('provider offline'));
+    await f.bot.handleUpdate(locationUpdate());
+    expect(f.repo.history).toHaveLength(0);
+    await f.bot.handleUpdate(messageUpdate('Берлин Германия', 1001));
+    expect(f.geocoder.search).toHaveBeenLastCalledWith('Берлин Германия', mode !== 'find');
+    expect(f.repo.history).toHaveLength(0);
+    expect(f.calls.at(-1)?.payload.text).toContain(mode === 'destination' ? 'Планы сохранены' : 'Сейчас находятся здесь');
+  });
+
+  it.each(['current', 'destination', 'find'] as const)('keeps %s mode when storage fails and retries the same operation after new input', async (mode) => {
+    const f = setup();
+    f.repo.users.set('1001', current);
+    await f.bot.handleUpdate(messageUpdate(mode === 'current' ? BUTTONS.text : mode === 'find' ? '/find' : '/destination', 1001));
+    const operation = vi.spyOn(f.repo, mode === 'current' ? 'saveLocation' : mode === 'find' ? 'listUsers' : 'saveDestination');
+    operation.mockRejectedValueOnce(new Error('storage offline'));
+    await f.bot.handleUpdate(messageUpdate('Берлин Германия', 1001));
+    expect(f.repo.history).toHaveLength(0);
+    await f.bot.handleUpdate(messageUpdate('Берлин Германия', 1001));
+    expect(f.geocoder.search).toHaveBeenLastCalledWith('Берлин Германия', mode !== 'find');
+    expect(operation).toHaveBeenCalledTimes(2);
+    expect(f.repo.history).toHaveLength(mode === 'current' ? 1 : 0);
+  });
+
+  it('keeps destination mode after failed clearing and consumes the old button without changing the current mark', async () => {
+    const f = setup();
+    f.repo.users.set('1001', { ...current, destination: candidate });
+    await f.bot.handleUpdate(messageUpdate('/destination', 1001));
+    const skip = button(f);
+    const save = vi.spyOn(f.repo, 'saveDestination').mockRejectedValueOnce(new Error('storage offline'));
+    await f.bot.handleUpdate(selection(skip));
+    await f.bot.handleUpdate(selection(skip));
+    expect(save).toHaveBeenCalledTimes(1);
+    await f.bot.handleUpdate(messageUpdate('Берлин Германия', 1001));
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(f.repo.history).toHaveLength(0);
+  });
+
+  it('always installs a persistent main keyboard, including before the first inline prompt and after errors', async () => {
+    const f = setup();
+    f.repo.users.set('1001', current);
+    await f.bot.handleUpdate(messageUpdate('/destination', 1001));
+    const first = f.calls.filter((call) => call.method === 'sendMessage');
+    expect(first[0]?.payload.reply_markup).toMatchObject({ is_persistent: true, one_time_keyboard: false });
+    expect(first[1]?.payload.reply_markup).toHaveProperty('inline_keyboard');
+    await f.bot.handleUpdate(messageUpdate('???', 1001));
+    await f.bot.handleUpdate(messageUpdate('/cancel', 1001));
+    await f.bot.handleUpdate(messageUpdate('/find', 1001));
+    await f.bot.handleUpdate(messageUpdate('Берлин', 1001));
+    await f.bot.handleUpdate(messageUpdate('/list', 1001));
+    for (const call of f.calls.filter((call) => call.method === 'sendMessage')) {
+      const markup = call.payload.reply_markup as Record<string, unknown>;
+      expect(markup).toBeDefined();
+      if (!('inline_keyboard' in markup)) expect(markup).toMatchObject({ is_persistent: true, one_time_keyboard: false });
+      expect(markup).not.toHaveProperty('remove_keyboard');
+    }
+    expect([...f.repo.settings.keys()].some((key) => key.startsWith('dialog'))).toBe(false);
+  });
+
   it('keeps consecutive city names in find mode after populated and empty results, until canceled', async () => {
     const f = setup();
     f.repo.users.set('1001', { ...current, country_code: 'de' });
