@@ -78,7 +78,7 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
       return;
     }
     const result = await service.findTravelers(candidate);
-    dialogs.delete(ctx.from!.id);
+    begin(ctx.from!.id, 'find');
     for (const text of formatSearch(locationLabel(candidate), result)) await ctx.reply(text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
   };
 

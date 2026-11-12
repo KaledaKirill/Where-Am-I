@@ -25,6 +25,26 @@ function selection(data: string, userId = 1001): Update {
 }
 
 describe('private dialogs', () => {
+  it('keeps consecutive city names in find mode after populated and empty results, until canceled', async () => {
+    const f = setup();
+    f.repo.users.set('1001', { ...current, country_code: 'de' });
+    await f.bot.handleUpdate(messageUpdate('/find', 1001));
+    await f.bot.handleUpdate(messageUpdate('Берлин', 1001));
+    f.geocoder.search.mockResolvedValue([{ ...candidate, city: 'Минск', region: '', country: 'Беларусь', country_code: 'by' }]);
+    await f.bot.handleUpdate(messageUpdate('минск', 1001));
+    expect(f.geocoder.search).toHaveBeenLastCalledWith('минск', false);
+    expect(f.calls.at(-1)?.payload.text).toContain('Пока никого нет');
+    f.geocoder.search.mockResolvedValue([{ ...candidate, city: 'Гомель', region: 'Гомельская область', country: 'Беларусь', country_code: 'by' }]);
+    await f.bot.handleUpdate(messageUpdate('гомель', 1001));
+    expect(f.geocoder.search).toHaveBeenLastCalledWith('гомель', false);
+    expect(f.calls.at(-1)?.payload.text).toContain('🔎 Гомель, Беларусь');
+    expect(f.repo.history).toHaveLength(0);
+    await f.bot.handleUpdate(messageUpdate('/cancel', 1001));
+    await f.bot.handleUpdate(messageUpdate('Гомель Беларусь', 1001));
+    expect(f.geocoder.search).toHaveBeenLastCalledWith('Гомель Беларусь', true);
+    expect(f.repo.history).toHaveLength(1);
+  });
+
   it('saves exact text marks, asks about plans, changes them independently and clears them without history or pin updates', async () => {
     const f = setup();
     await f.bot.handleUpdate(messageUpdate('Берлин Германия', 1001));

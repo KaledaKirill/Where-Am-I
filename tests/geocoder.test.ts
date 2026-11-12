@@ -68,6 +68,14 @@ describe('Geoapify', () => {
 });
 
 describe('interactive Geoapify search', () => {
+  it('resolves Minsk using a city lookup when unrestricted search returns nothing', async () => {
+    const f = setup([{ ...cityResult, city: 'Минск', state: undefined, county: undefined, country: 'Беларусь', country_code: 'by' }]);
+    f.fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ results: [] })));
+    expect(await f.geocoder.search('минск', false)).toMatchObject([{ city: 'Минск', country_code: 'by', type: 'city', exact: true }]);
+    expect(f.fetcher).toHaveBeenCalledTimes(2);
+    expect(f.fetcher.mock.calls.map(([url]) => new URL(String(url)).searchParams.get('type'))).toEqual([null, 'city']);
+  });
+
   it('passes compound names intact, disables IP bias and accepts exact settlements', async () => {
     const f = setup([cityResult]);
     expect(await f.geocoder.search('Нижний Новгород Россия', true)).toEqual([{

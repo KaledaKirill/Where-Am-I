@@ -91,7 +91,10 @@ export class GeoapifyGeocoder implements Geocoder, ForwardGeocoder {
 
   async search(query: string, settlementsOnly: boolean): Promise<PlaceCandidate[]> {
     // locality excludes countries; an unrestricted query is necessary for /find.
-    const response = await this.request('search', { text: query, limit: '5', ...(settlementsOnly ? { type: 'city' } : {}) });
+    let response = await this.request('search', { text: query, limit: '5', ...(settlementsOnly ? { type: 'city' } : {}) });
+    // Some valid city names (e.g. Минск) return no unrestricted results, while
+    // the same provider resolves them with an explicit settlement type.
+    if (!settlementsOnly && !response.results.length) response = await this.request('search', { text: query, limit: '5', type: 'city' });
     const candidates = new Map<string, PlaceCandidate>();
     for (const result of response.results) {
       const type = result.result_type as PlaceType;
