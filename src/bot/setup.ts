@@ -4,9 +4,12 @@ import type { AppLogger } from '../logging.js';
 
 export const GROUP_COMMANDS = [{ command: 'list', description: 'Где сейчас путешественники' }];
 export const PRIVATE_COMMANDS = [
-  { command: 'start', description: 'Отметиться геолокацией' },
+  { command: 'start', description: 'Отметиться и узнать, как пользоваться ботом' },
   { command: 'help', description: 'Как пользоваться ботом' },
   ...GROUP_COMMANDS,
+  { command: 'find', description: 'Найти путешественников' },
+  { command: 'destination', description: 'Изменить планы поездки' },
+  { command: 'cancel', description: 'Отменить текущий ввод' },
 ];
 
 export async function registerGroupCommands(api: Pick<Api, 'setMyCommands'>, groupId: string, logger: AppLogger = silentLogger): Promise<void> {

@@ -37,7 +37,13 @@ export function fakeSheets(initial: Record<string, (string | number)[][]> = {}, 
       if (append) table.push(...rows);
       else {
         if (update?.range) table.length = 0;
-        rows.forEach((row, offset) => { table[(update?.start?.rowIndex ?? 0) + offset] = row; });
+        rows.forEach((row, offset) => {
+          const index = (update?.start?.rowIndex ?? 0) + offset;
+          const target = table[index] ?? [];
+          const start = update?.start?.columnIndex ?? 0;
+          row.forEach((value, column) => { target[start + column] = value; });
+          table[index] = target;
+        });
       }
     }
     return { data: {} };

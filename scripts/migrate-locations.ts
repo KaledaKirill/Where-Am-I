@@ -76,6 +76,9 @@ export async function planMigration(snapshot: Snapshot, geocoder: ForwardGeocode
     if (nonempty.length && (!headers.includes('user_id') || !headers.includes(title === 'Users' ? 'updated_at' : 'recorded_at') || (!headers.includes('location') && !headers.includes('country')))) {
       throw new Error(`Unsupported schema: ${title}. Map headers explicitly before migration.`);
     }
+    // New country/county and destination columns are included via TABLE_COLUMNS.
+    // Existing plans remain in record below; absent plans stay empty, and never
+    // become location-history events or trigger additional geocoding.
     const columns = [...TABLE_COLUMNS[title], ...headers.filter((h) => !(TABLE_COLUMNS[title] as readonly string[]).includes(h)), ...(!headers.includes('legacy_location') ? ['legacy_location'] : [])];
     const output: Cell[][] = [columns];
     plan.tables[title] = output;

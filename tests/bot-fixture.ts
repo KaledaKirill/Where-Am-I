@@ -13,17 +13,18 @@ export function botFixture() {
     allows_users_to_create_topics: false, can_manage_bots: false, supports_join_request_queries: false };
   const bot = new Bot(env.TELEGRAM_BOT_TOKEN, { botInfo: info });
   const calls: { method: string; payload: Record<string, unknown> }[] = [];
+  let messageId = 99;
   const transport = vi.fn(async (_previous: unknown, method: string, payload: Record<string, unknown>): Promise<{ ok: boolean; result: unknown }> => {
     calls.push({ method, payload });
     if (method === 'getChatMember') return { ok: true, result: { status: 'member', user: { id: 1001, is_bot: false, first_name: 'Anna' } } };
     if (method === 'sendMessage' || method === 'editMessageText') return { ok: true, result: {
-      message_id: 100, date: 1, chat: { id: -100123, type: 'supergroup', title: 'Travellers' }, from: info, text: payload.text,
+      message_id: method === 'sendMessage' ? ++messageId : payload.message_id, date: 1, chat: { id: -100123, type: 'supergroup', title: 'Travellers' }, from: info, text: payload.text,
     } };
     return { ok: true, result: true };
   });
   bot.api.config.use(transport as unknown as Transformer);
   const repo = new MemoryRepository();
-  const geocoder = { reverse: vi.fn().mockResolvedValue(place) };
+  const geocoder = { reverse: vi.fn().mockResolvedValue(place), search: vi.fn().mockResolvedValue([]) };
   const service = new LocationService(repo, geocoder);
   const pinned = new PinnedMessageService(repo, service, bot.api, env.TELEGRAM_GROUP_ID);
   return { bot, repo, service, calls, transport, info, geocoder, pinned };

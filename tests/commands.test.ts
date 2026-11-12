@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { registerCommands } from '../src/bot/commands.js';
-import { formatList, HELP_TEXT, START_TEXT } from '../src/bot/formatting.js';
+import { checkListLength, formatList, HELP_TEXT, START_TEXT } from '../src/bot/formatting.js';
 import { env, current } from './fixtures.js';
 import { botFixture, callbackUpdate, locationUpdate, membershipUpdate, messageUpdate } from './bot-fixture.js';
 
@@ -14,7 +14,10 @@ describe('Telegram commands', () => {
   it('sends a location request keyboard and Russian instructions in private chat', async () => {
     const f = setup();
     await f.bot.handleUpdate(messageUpdate('/start', 1001));
-    expect(f.calls[0]?.payload).toMatchObject({ text: START_TEXT, reply_markup: { keyboard: [[{ text: '📍 Отправить геолокацию', request_location: true }]] } });
+    expect(f.calls[0]?.payload.text).toBe(START_TEXT);
+    const keyboard = f.calls[0]?.payload.reply_markup as { keyboard: { text: string; request_location?: boolean }[][] };
+    expect(keyboard.keyboard[0]).toEqual([{ text: '📍 Отправить геолокацию', request_location: true }]);
+    expect(keyboard.keyboard.flat().map((button) => button.text)).toContain('🔎 Найти путешественников');
     await f.bot.handleUpdate(messageUpdate('/help@WhereAmIBot', 1001));
     expect(f.calls.at(-1)?.payload.text).toBe(HELP_TEXT);
     expect(f.repo.history).toHaveLength(0);
@@ -28,7 +31,8 @@ describe('Telegram commands', () => {
     expect(f.repo.users.size).toBe(1);
     expect(f.repo.history).toHaveLength(2);
     expect(f.calls.filter((c) => c.method === 'sendMessage' && c.payload.chat_id === env.TELEGRAM_GROUP_ID)).toHaveLength(1);
-    expect(f.calls.at(-1)?.payload.text).toBe('✅ Вы отметились: Берлин, Германия');
+    expect(f.calls.at(-2)?.payload.text).toBe('✅ Вы отметились: Берлин, Германия');
+    expect(f.calls.at(-1)?.payload.text).toContain('✈️ Куда направляешься?');
     expect(f.repo.settings.get('pinned_message_id')).toBe('100');
     await f.bot.handleUpdate(messageUpdate('/list'));
     const pinnedText = f.calls.find((c) => c.method === 'editMessageText')?.payload.text;
@@ -43,7 +47,7 @@ describe('Telegram commands', () => {
     await f.bot.handleUpdate(locationUpdate());
     expect(f.geocoder.reverse).not.toHaveBeenCalled();
     expect(f.repo.history).toHaveLength(0);
-    expect(f.calls.at(-1)?.payload.text).toContain('только участники');
+    expect(f.calls.at(-1)?.payload.text).toContain('только участникам');
   });
 
   it('does not allow membership API failure to bypass authorization', async () => {
@@ -71,11 +75,11 @@ describe('Telegram commands', () => {
     const getSetting = vi.spyOn(f.repo, 'getSetting').mockRejectedValueOnce(new Error('Sheets unavailable'));
     await f.bot.handleUpdate(locationUpdate());
     expect(f.repo.history).toHaveLength(1);
-    expect(f.calls.at(-1)?.payload.text).toContain('✅ Вы отметились');
+    expect(f.calls.at(-2)?.payload.text).toContain('✅ Вы отметились');
     await f.bot.handleUpdate(locationUpdate());
-    expect(getSetting).toHaveBeenCalledTimes(2);
+    expect(getSetting).toHaveBeenCalledTimes(3);
     expect(f.repo.history).toHaveLength(2);
-    expect(f.repo.settings.get('pinned_message_id')).toBe('100');
+    expect(f.repo.settings.get('pinned_message_id')).toBe('102');
   });
 
   it('ignores group locations, removed commands, ordinary text and edited live locations', async () => {
@@ -102,11 +106,14 @@ describe('Telegram commands', () => {
     expect(f.calls.at(-1)?.payload.text).toContain('только участникам');
   });
 
-  it('logs an oversized list and replies safely', async () => {
+  it('sends an oversized list in complete linked fragments without losing text', async () => {
     const f = setup();
     f.repo.users.set('1', { ...current, user_id: '1', display_name: 'А'.repeat(5000) });
     await expect(f.bot.handleUpdate(messageUpdate('/list'))).resolves.toBeUndefined();
-    expect(f.calls.at(-1)?.payload.text).toContain('превышает лимит');
+    const texts = f.calls.filter((call) => call.method === 'sendMessage').map((call) => String(call.payload.text));
+    expect(texts.length).toBeGreaterThan(1);
+    texts.forEach((text) => expect(() => checkListLength(text)).not.toThrow());
+    expect(texts.join('').match(/А/g)).toHaveLength(5000);
   });
 
   it('configures only list when added to the group, ignores departures and acknowledges old callbacks', async () => {

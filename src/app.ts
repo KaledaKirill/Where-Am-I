@@ -22,7 +22,7 @@ export function createApp(config: Config, service: LocationService, bot = new Bo
     }
   });
   app.get('/health', async (_request, reply) => {
-    reply.header('X-App-Version', '3.0');
+    reply.header('X-App-Version', '1.0.1');
     reply.header('X-App-Revision', process.env.RENDER_GIT_COMMIT ?? 'development');
     return { status: 'ok' };
   });

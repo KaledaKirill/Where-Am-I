@@ -2,7 +2,8 @@ import { expect, it, vi } from 'vitest';
 import { normalizeLegacyLocation, planMigration, runMigration } from '../scripts/migrate-locations.js';
 import type { Snapshot } from '../scripts/migrate-locations.js';
 import { GeocodingError } from '../src/adapters/geoapify-geocoder.js';
-import { current, coordinates, place } from './fixtures.js';
+import { candidate, current, coordinates, place } from './fixtures.js';
+import { DESTINATION_FIELDS, USER_COLUMNS } from '../src/adapters/google-sheets-repository.js';
 import { fakeSheets } from './sheets-fixture.js';
 
 const legacy = {
@@ -28,6 +29,20 @@ it('uses explicit overrides and refuses unknown personal comments or ambiguous r
   expect(normalizeLegacyLocation('Москва / Тверь')).toBeNull();
   expect(normalizeLegacyLocation('странная строка', { 'странная строка': 'Тверь, Россия' })).toBe('Тверь, Россия');
   expect(normalizeLegacyLocation('не переносить', { 'не переносить': null })).toBeNull();
+});
+
+it('preserves normalized current records, separate destination fields and multiple pin IDs without geocoding or extra history', async () => {
+  const geo = geocoder();
+  const record: Record<string, unknown> = { ...current, country_code: 'de', ...Object.fromEntries(DESTINATION_FIELDS.map((field) => [`destination_${field}`, candidate[field] ?? ''])) };
+  const f = fakeSheets({ Users: [[...USER_COLUMNS], USER_COLUMNS.map((column) => String(record[column] ?? ''))],
+    Settings: [['key', 'value'], ['pinned_message_id', '42'], ['pinned_message_ids', '[43,44]']],
+  });
+  await runMigration({ client: f.client, spreadsheetId: 'sheet', geocoder: geo, apply: true, saveArtifact: async () => {}, pause: async () => {} });
+  expect(geo.forward).not.toHaveBeenCalled();
+  await f.repo.initialize();
+  expect((await f.repo.getUser(current.user_id))?.destination).toMatchObject({ city: 'Берлин', latitude: coordinates.latitude, country_code: 'de' });
+  expect(f.tables.get('LocationHistory')).toHaveLength(1);
+  expect(await f.repo.getSetting('pinned_message_ids')).toBe('[43,44]');
 });
 
 it('preserves original dates, IDs and existing history without synthesizing route events', async () => {

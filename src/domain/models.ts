@@ -13,6 +13,21 @@ export interface Place {
   city: string;
   region: string;
   country: string;
+  country_code?: string;
+  county?: string;
+}
+
+export type Destination = Place & Coordinates;
+export type PlaceType = 'city' | 'state' | 'county' | 'country';
+export interface PlaceCandidate extends Destination {
+  type: PlaceType;
+  confidence: number;
+  exact: boolean;
+}
+
+export interface TravelerSearchResult {
+  current: CurrentUser[];
+  planned: CurrentUser[];
 }
 
 export interface LocatedPlace extends Place, Coordinates {
@@ -22,6 +37,7 @@ export interface LocatedPlace extends Place, Coordinates {
 
 export interface CurrentUser extends TelegramUser, LocatedPlace {
   updated_at: string;
+  destination?: Destination | null;
 }
 
 export interface LocationHistoryEntry extends LocatedPlace {
@@ -35,7 +51,7 @@ export interface LocationGroup {
   users: CurrentUser[];
 }
 
-export type LocationErrorCode = 'invalid_input' | 'geocoding_failed' | 'unavailable';
+export type LocationErrorCode = 'invalid_input' | 'geocoding_failed' | 'unavailable' | 'not_found' | 'no_location';
 
 export class LocationError extends Error {
   constructor(public readonly code: LocationErrorCode, options?: ErrorOptions) {

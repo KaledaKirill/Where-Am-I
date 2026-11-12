@@ -1,7 +1,13 @@
-import type { Coordinates, Place } from './models.js';
+import type { Coordinates, Place, PlaceCandidate } from './models.js';
 
 export interface Geocoder {
   reverse(coordinates: Coordinates): Promise<Place>;
+  search?(query: string, settlementsOnly: boolean): Promise<PlaceCandidate[]>;
+}
+
+export function normalizePlace(value: string): string {
+  return value.normalize('NFKC').toLocaleLowerCase('ru').replace(/ё/g, 'е')
+    .replace(/[,\s]+/gu, ' ').trim();
 }
 
 export interface ForwardGeocoder {

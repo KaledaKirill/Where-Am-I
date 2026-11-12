@@ -3,12 +3,15 @@ import { GoogleAuth } from 'google-auth-library';
 import { z } from 'zod';
 import type { Config } from '../config.js';
 import type { LocationRepository } from '../domain/location-repository.js';
-import type { CurrentUser, LocationHistoryEntry } from '../domain/models.js';
+import type { CurrentUser, Destination, LocationHistoryEntry } from '../domain/models.js';
 import { logOperation, silentLogger } from '../logging.js';
 import type { AppLogger } from '../logging.js';
 
-export const USER_COLUMNS = ['user_id', 'display_name', 'username', 'location', 'updated_at', 'city', 'region', 'country', 'latitude', 'longitude', 'coordinate_source'] as const;
-export const HISTORY_COLUMNS = ['user_id', 'location', 'recorded_at', 'city', 'region', 'country', 'latitude', 'longitude', 'coordinate_source'] as const;
+export const BASE_USER_COLUMNS = ['user_id', 'display_name', 'username', 'location', 'updated_at', 'city', 'region', 'country', 'latitude', 'longitude', 'coordinate_source'] as const;
+export const BASE_HISTORY_COLUMNS = ['user_id', 'location', 'recorded_at', 'city', 'region', 'country', 'latitude', 'longitude', 'coordinate_source'] as const;
+export const DESTINATION_FIELDS = ['city', 'region', 'county', 'country', 'country_code', 'latitude', 'longitude'] as const;
+export const USER_COLUMNS = [...BASE_USER_COLUMNS, 'country_code', 'county', ...DESTINATION_FIELDS.map((field) => `destination_${field}` as const)] as const;
+export const HISTORY_COLUMNS = [...BASE_HISTORY_COLUMNS, 'country_code', 'county'] as const;
 export const SETTINGS_COLUMNS = ['key', 'value'] as const;
 export const TABLE_COLUMNS = { Users: USER_COLUMNS, LocationHistory: HISTORY_COLUMNS, Settings: SETTINGS_COLUMNS };
 export type SheetsClient = Pick<sheets_v4.Sheets, 'spreadsheets'>;
@@ -16,8 +19,14 @@ export const requestOptions = { retry: false, timeout: 10_000 };
 
 export const locatedSchema = z.object({
   city: z.string(), region: z.string(), country: z.string().min(1), location: z.string().min(1),
+  country_code: z.string().regex(/^(?:[a-z]{2})?$/).optional(), county: z.string().optional(),
   latitude: z.coerce.number().min(-90).max(90), longitude: z.coerce.number().min(-180).max(180),
   coordinate_source: z.enum(['telegram', 'geocoded']),
+});
+const destinationSchema = z.object({
+  city: z.string().min(1), region: z.string(), county: z.string().optional(), country: z.string().min(1),
+  country_code: z.string().regex(/^[a-z]{2}$/),
+  latitude: z.coerce.number().min(-90).max(90), longitude: z.coerce.number().min(-180).max(180),
 });
 export const currentUserSchema = locatedSchema.extend({
   user_id: z.string().regex(/^\d+$/), display_name: z.string().min(1),
@@ -59,10 +68,16 @@ export class GoogleSheetsRepository implements LocationRepository {
           const { data: header } = await this.client.spreadsheets.values.get({ spreadsheetId: this.spreadsheetId, range: `'${title}'!1:1`, valueRenderOption: 'UNFORMATTED_VALUE' }, requestOptions);
           const row = (header.values?.[0] ?? []).map(String);
           // Preflight every existing header BEFORE making any changes.
-          if (new Set(row).size !== row.length || columns.some((c) => !row.includes(c))) {
+          const required = title === 'Users' ? BASE_USER_COLUMNS : title === 'LocationHistory' ? BASE_HISTORY_COLUMNS : SETTINGS_COLUMNS;
+          if (row.some((c) => !c) || new Set(row).size !== row.length || required.some((c) => !row.includes(c))) {
             throw new Error('sheets_migration_required');
           }
-          tables.set(title, { id, columns: row });
+          const missing = columns.filter((c) => !row.includes(c));
+          if (missing.length) {
+            requests.push({ appendDimension: { sheetId: id, dimension: 'COLUMNS', length: missing.length } });
+            requests.push({ updateCells: { start: { sheetId: id, rowIndex: 0, columnIndex: row.length }, rows: [cells(missing)], fields: 'userEnteredValue' } });
+          }
+          tables.set(title, { id, columns: [...row, ...missing] });
         } else {
           requests.push({ addSheet: { properties: { sheetId: id, title, gridProperties: { columnCount: columns.length } } } });
           requests.push({ updateCells: { start: { sheetId: id, rowIndex: 0, columnIndex: 0 }, rows: [cells([...columns])], fields: 'userEnteredValue' } });
@@ -105,7 +120,10 @@ export class GoogleSheetsRepository implements LocationRepository {
         const parsed = currentUserSchema.safeParse(record);
         if (!parsed.success || record.latitude === '' || record.longitude === '' || seen.has(parsed.data.user_id)) throw new Error('Некорректные или повторные записи Users');
         seen.add(parsed.data.user_id);
-        result.push({ user: parsed.data, rowIndex: index + 1, values: row });
+        const destination = Object.fromEntries(DESTINATION_FIELDS.map((field) => [field, record[`destination_${field}`] ?? '']));
+        const hasDestination = Object.values(destination).some((value) => value !== '');
+        if (hasDestination && (destination.latitude === '' || destination.longitude === '')) throw new Error('Некорректный пункт назначения');
+        result.push({ user: { ...parsed.data, destination: hasDestination ? destinationSchema.parse(destination) : null }, rowIndex: index + 1, values: row });
       }
       return result;
     }, 'debug');
@@ -127,15 +145,34 @@ export class GoogleSheetsRepository implements LocationRepository {
       const existing = (await this.readUsers()).find((e) => e.user.user_id === user.user_id);
       const users = this.table('Users');
       const history = this.table('LocationHistory');
-      const record: Record<string, unknown> = { ...user };
+      // Current check-ins never overwrite destination cells, even if a caller
+      // read an older version of the user's plans before acquiring this lock.
+      const record: Record<string, unknown> = { ...user, country_code: user.country_code ?? '', county: user.county ?? '' };
+      delete record.destination;
       const rows = [cells(users.columns.map((column, i) => column in record ? record[column] : existing?.values[i] ?? ''))];
-      const writeUser: sheets_v4.Schema$Request = existing
-        ? { updateCells: { start: { sheetId: users.id, rowIndex: existing.rowIndex, columnIndex: 0 }, rows, fields: 'userEnteredValue' } }
-        : { appendCells: { sheetId: users.id, rows, fields: 'userEnteredValue' } };
+      const writeUser: sheets_v4.Schema$Request[] = existing
+        ? users.columns.flatMap((column, index): sheets_v4.Schema$Request[] => column in record ? [{ updateCells: {
+          start: { sheetId: users.id, rowIndex: existing.rowIndex, columnIndex: index }, rows: [cells([record[column]])], fields: 'userEnteredValue',
+        } }] : [])
+        : [{ appendCells: { sheetId: users.id, rows, fields: 'userEnteredValue' } }];
       const historical: Record<string, unknown> = { ...event };
-      await this.client.spreadsheets.batchUpdate({ spreadsheetId: this.spreadsheetId, requestBody: { requests: [writeUser,
+      await this.client.spreadsheets.batchUpdate({ spreadsheetId: this.spreadsheetId, requestBody: { requests: [...writeUser,
         { appendCells: { sheetId: history.id, rows: [cells(history.columns.map((c) => historical[c] ?? ''))], fields: 'userEnteredValue' } },
       ] } }, requestOptions);
+    }));
+  }
+
+  async saveDestination(userId: string, destination: Destination | null): Promise<void> {
+    if (destination) destinationSchema.parse(destination);
+    await logOperation(this.logger, 'sheets_save_destination', () => this.locked(async () => {
+      const existing = (await this.readUsers()).find((entry) => entry.user.user_id === userId);
+      if (!existing) throw new Error('Current location required');
+      const table = this.table('Users');
+      const requests = DESTINATION_FIELDS.map((field): sheets_v4.Schema$Request => ({ updateCells: {
+        start: { sheetId: table.id, rowIndex: existing.rowIndex, columnIndex: table.columns.indexOf(`destination_${field}`) },
+        rows: [cells([destination?.[field] ?? ''])], fields: 'userEnteredValue',
+      } }));
+      await this.client.spreadsheets.batchUpdate({ spreadsheetId: this.spreadsheetId, requestBody: { requests } }, requestOptions);
     }));
   }
 
