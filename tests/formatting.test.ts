@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { checkListLength, formatList, formatListParts, splitHtmlMessages } from '../src/bot/formatting.js';
+import { checkListLength, formatHome, formatList, formatListPages, formatListParts, formatSearch, splitHtmlMessages } from '../src/bot/formatting.js';
 import { current } from './fixtures.js';
 
 it('escapes names and locations, links profiles with and without username, includes everyone without coordinates', () => {
@@ -12,7 +12,42 @@ it('escapes names and locations, links profiles with and without username, inclu
   expect(text).toContain('<a href="tg://user?id=2">Мария</a>');
   expect(text).not.toContain(String(current.latitude));
   expect(text).not.toContain('Страница');
-  expect(formatList([])).toContain('Пока никто');
+  expect(formatList([])).toContain('Здесь пока нет отметок');
+});
+
+it('paginates search with totals, repeated headings, both categories and complete profile links', () => {
+  const users = Array.from({ length: 23 }, (_, index) => ({ ...current, user_id: String(index + 1), username: null, display_name: `Имя ${index}` }));
+  const pages = formatSearch('Место <&>', { current: users, planned: users.slice(0, 2) });
+  expect(pages).toHaveLength(3);
+  expect(pages[0]).toContain('Отметились здесь · 23');
+  expect(pages[1]).toContain('Отметились здесь · 23');
+  expect(pages[2]).toContain('Планируют приехать · 2');
+  expect(pages.join('').match(/tg:\/\/user\?id=/g)).toHaveLength(25);
+  pages.forEach((page, index) => {
+    expect(() => checkListLength(page)).not.toThrow();
+    expect(page).toContain('&lt;&amp;&gt;');
+    expect(page).toContain(`Страница ${index + 1} из 3`);
+    expect(page.match(/<a /g)?.length ?? 0).toBeLessThanOrEqual(10);
+    expect(page.match(/<b>/g)?.length ?? 0).toBe(page.match(/<\/b>/g)?.length ?? 0);
+  });
+  expect(formatSearch('Место', { current: users.slice(0, 10), planned: [] })).toHaveLength(1);
+});
+
+it('preserves long escaped names on private pages with valid HTML and no dates or coordinates', () => {
+  const longName = '&😀'.repeat(2500);
+  const pages = formatListPages([{ key: 'long', label: 'Место', users: [{ ...current, display_name: longName }] }]);
+  expect(pages.length).toBeGreaterThan(1);
+  pages.forEach((page) => {
+    expect(() => checkListLength(page)).not.toThrow();
+    expect(page.match(/<a /g)?.length).toBe(page.match(/<\/a>/g)?.length);
+    expect(page).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u);
+  });
+  const name = [...pages.join('').matchAll(/<a [^>]*>(.*?)<\/a>/gs)].map((match) => match[1]).join('');
+  expect(name).toBe('&amp;😀'.repeat(2500));
+  const all = [formatHome(current), ...pages, ...formatSearch('Берлин', { current: [current], planned: [] })].join('');
+  expect(all).not.toContain(current.updated_at);
+  expect(all).not.toContain(String(current.latitude));
+  expect(all).not.toContain('Последняя отметка:');
 });
 
 it('preserves every user, entity, Unicode code point and complete link when splitting messages', () => {

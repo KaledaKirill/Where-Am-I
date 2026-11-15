@@ -2,14 +2,14 @@ import type { Api } from 'grammy';
 import { logOperation, silentLogger } from '../logging.js';
 import type { AppLogger } from '../logging.js';
 
-export const GROUP_COMMANDS = [{ command: 'list', description: 'Где сейчас путешественники' }];
+export const GROUP_COMMANDS = [{ command: 'list', description: 'Где участники группы' }];
 export const PRIVATE_COMMANDS = [
-  { command: 'start', description: 'Отметиться и узнать, как пользоваться ботом' },
-  { command: 'help', description: 'Как пользоваться ботом' },
+  { command: 'checkin', description: 'Отметить текущее место' },
+  { command: 'destination', description: 'Мои планы поездки' },
+  { command: 'find', description: 'Найти участников по месту' },
   ...GROUP_COMMANDS,
-  { command: 'find', description: 'Найти путешественников' },
-  { command: 'destination', description: 'Изменить планы поездки' },
-  { command: 'cancel', description: 'Отменить текущий ввод' },
+  { command: 'start', description: 'Главное меню' },
+  { command: 'help', description: 'Как пользоваться ботом' },
 ];
 
 export async function registerGroupCommands(api: Pick<Api, 'setMyCommands'>, groupId: string, logger: AppLogger = silentLogger): Promise<void> {

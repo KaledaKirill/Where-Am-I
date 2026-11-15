@@ -15,7 +15,8 @@ export interface ForwardGeocoder {
 }
 
 export function locationLabel(place: Place): string {
-  return [place.city || place.region, place.country].filter(Boolean).join(', ');
+  return [place.city || place.county || '', place.region, place.country].filter(Boolean)
+    .filter((value, index, values) => values.findIndex((other) => normalizePlace(other) === normalizePlace(value)) === index).join(', ');
 }
 
 export function validCoordinates(value: Coordinates): boolean {

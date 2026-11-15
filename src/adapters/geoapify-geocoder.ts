@@ -110,17 +110,11 @@ export class GeoapifyGeocoder implements Geocoder, ForwardGeocoder {
       if (type === 'county') resolved.county = result.county || result.name || '';
       if (type === 'city' && !resolved.city) continue;
       const normalized = normalizePlace(query);
-      const countryIncluded = [response.query?.parsed?.country, result.country].some((country) => {
-        if (!country) return false;
-        const suffix = ` ${normalizePlace(country)}`;
-        return normalized.endsWith(suffix) && /\p{L}/u.test(normalized.slice(0, -suffix.length));
-      });
-      if (settlementsOnly && !countryIncluded) continue;
       const name = type === 'city' ? resolved.city : type === 'county' ? resolved.county! : type === 'state' ? resolved.region : resolved.country;
       if (!name.trim()) continue;
       const exactText = type === 'country' ? normalizePlace(name) : normalizePlace(`${name} ${resolved.country}`);
       const exact = result.rank?.confidence === 1 && result.rank.match_type === 'full_match'
-        && (normalized === exactText || (!settlementsOnly && normalized === normalizePlace(name)));
+        && (normalized === exactText || normalized === normalizePlace(name));
       const candidate: PlaceCandidate = { ...resolved, ...coordinates, type, confidence: result.rank!.confidence!, exact };
       const identity = JSON.stringify([type, resolved.country_code || '', resolved.region, resolved.county || '', name.replace(/^(?:городской округ|город|г\.)\s+/iu, '')].map(normalizePlace));
       const previous = candidates.get(identity);

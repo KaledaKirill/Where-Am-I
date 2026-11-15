@@ -21,7 +21,7 @@ describe('HTTP application', () => {
     const response = await f.app.inject({ method: 'GET', url: '/health' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: 'ok' });
-    expect(response.headers['x-app-version']).toBe('1.0.1');
+    expect(response.headers['x-app-version']).toBe('1.0.2');
     expect(read).not.toHaveBeenCalled();
     expect(f.transport).not.toHaveBeenCalled();
   });
@@ -45,8 +45,8 @@ describe('HTTP application', () => {
     });
     expect(response.statusCode).toBe(200);
     expect(f.repo.history).toHaveLength(1);
-    expect(f.calls.at(-2)?.payload.text).toContain('Вы отметились');
-    expect(f.calls.at(-1)?.payload.text).toContain('Куда направляешься?');
+    expect(f.calls.at(-1)?.payload.text).toContain('Место сохранено');
+    expect(f.calls.filter((call) => call.method === 'sendMessage')).toHaveLength(1);
   });
 
   it('returns a safe 400 for a malformed webhook body', async () => {

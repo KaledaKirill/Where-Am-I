@@ -24,7 +24,7 @@ export const locatedSchema = z.object({
   coordinate_source: z.enum(['telegram', 'geocoded']),
 });
 const destinationSchema = z.object({
-  city: z.string().min(1), region: z.string(), county: z.string().optional(), country: z.string().min(1),
+  city: z.string(), region: z.string(), county: z.string().optional(), country: z.string().trim().min(1),
   country_code: z.string().regex(/^[a-z]{2}$/),
   latitude: z.coerce.number().min(-90).max(90), longitude: z.coerce.number().min(-180).max(180),
 });

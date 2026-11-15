@@ -3,6 +3,10 @@ import { BASE_HISTORY_COLUMNS, BASE_USER_COLUMNS, HISTORY_COLUMNS, USER_COLUMNS 
 import { fakeSheets } from './sheets-fixture.js';
 import { candidate, current, event } from './fixtures.js';
 import { captureLogs } from './logging-fixture.js';
+import { GoogleSheetsRepository } from '../src/adapters/google-sheets-repository.js';
+import { GeoapifyGeocoder } from '../src/adapters/geoapify-geocoder.js';
+import { LocationService } from '../src/services/location-service.js';
+import { author } from './fixtures.js';
 
 describe('GoogleSheetsRepository', () => {
   it('creates missing sheets and headers, retaining all data on restart', async () => {
@@ -158,4 +162,23 @@ it('serializes concurrent current/destination writes without losing plans and re
   await Promise.all([f.repo.saveDestination(current.user_id, candidate), f.repo.saveLocation(current, event)]);
   expect((await f.repo.getUser(current.user_id))?.destination?.city).toBe('Берлин');
   expect(f.tables.get('LocationHistory')).toHaveLength(3);
+});
+
+it.each(['city', 'state', 'county', 'country'] as const)('round-trips a %s through geocoding, service, Sheets and a new repository instance', async (type) => {
+  const result = { result_type: type, name: 'Место', city: type === 'city' ? 'Город' : undefined,
+    state: type === 'country' ? undefined : 'Область', county: type === 'county' ? 'Район' : undefined,
+    country: 'Страна', country_code: 'by', lat: 0, lon: 0, rank: { confidence: 1, match_type: 'full_match' } };
+  const geocoder = new GeoapifyGeocoder('fake-key', async () => new Response(JSON.stringify({ results: [result] })));
+  const f = fakeSheets();
+  const service = new LocationService(f.repo, geocoder);
+  const [place] = await service.resolveText(type === 'country' ? 'Страна' : type === 'city' ? 'Город' : type === 'state' ? 'Область' : 'Район');
+  await service.setTextLocation(author, place!);
+  await service.setDestination(author.user_id, place!);
+  const before = await service.getUser(author.user_id);
+  const restarted = new GoogleSheetsRepository(f.client, 'sheet-id');
+  const after = await restarted.getUser(author.user_id);
+  expect(after).toEqual(before);
+  expect(after?.destination).toMatchObject({ city: type === 'city' ? 'Город' : '', country: 'Страна', latitude: 0, longitude: 0 });
+  expect(f.tables.get('Users')![0]).toEqual([...USER_COLUMNS]);
+  expect(f.tables.get('LocationHistory')).toHaveLength(2);
 });

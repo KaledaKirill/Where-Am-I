@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LocationService } from '../src/services/location-service.js';
 import { author, candidate, coordinates, current, MemoryRepository, place } from './fixtures.js';
+import type { PlaceCandidate } from '../src/domain/models.js';
+import { locationLabel } from '../src/domain/geocoder.js';
 
 describe('LocationService', () => {
   it('creates, updates and records every repeated location with original Telegram coordinates', async () => {
@@ -54,7 +56,7 @@ describe('LocationService', () => {
   it('groups settlements by country and region and sorts names', async () => {
     const repo = new MemoryRepository();
     repo.users.set('1', { ...current, user_id: '1', display_name: 'Яна' });
-    repo.users.set('2', { ...current, user_id: '2', city: 'берлин', display_name: 'Анна' });
+    repo.users.set('2', { ...current, user_id: '2', city: 'берлин', country_code: 'de', display_name: 'Анна' });
     repo.users.set('3', { ...current, user_id: '3', region: 'Другой регион' });
     const groups = await new LocationService(repo, { reverse: vi.fn() }).listGroups();
     expect(groups).toHaveLength(2);
@@ -79,18 +81,19 @@ describe('destinations and traveler search', () => {
     expect(repo.history).toHaveLength(2);
   });
 
-  it('requires an existing current location for plans and never stores nonsettlement text marks', async () => {
+  it('requires an existing current location for plans and stores country marks without inventing a city', async () => {
     const repo = new MemoryRepository();
     const service = new LocationService(repo, { reverse: vi.fn() });
     await expect(service.setDestination(author.user_id, candidate)).rejects.toMatchObject({ code: 'no_location' });
-    await expect(service.setTextLocation(author, { ...candidate, type: 'country' })).rejects.toMatchObject({ code: 'invalid_input' });
-    expect(repo.history).toHaveLength(0);
+    await service.setTextLocation(author, { ...candidate, type: 'country' });
+    expect(repo.users.get(author.user_id)).toMatchObject({ city: '', region: '', county: '', location: 'Германия' });
+    expect(repo.history).toHaveLength(1);
   });
 
   it.each(['', '   ', 'a', 'Москва / Россия', 'x'.repeat(201), '12345'])('rejects malformed input %j before provider access', async (text) => {
     const search = vi.fn();
     const service = new LocationService(new MemoryRepository(), { reverse: vi.fn(), search });
-    await expect(service.resolveText(text, true)).rejects.toMatchObject({ code: 'invalid_input' });
+    await expect(service.resolveText(text)).rejects.toMatchObject({ code: 'invalid_input' });
     expect(search).not.toHaveBeenCalled();
   });
 
@@ -99,8 +102,8 @@ describe('destinations and traveler search', () => {
     const repo = new MemoryRepository();
     repo.users.set(author.user_id, current);
     const service = new LocationService(repo, { reverse: vi.fn(), search });
-    await expect(service.resolveText('Город Страна', true)).rejects.toMatchObject({ code: 'not_found' });
-    await expect(service.resolveText('Город Страна', true)).rejects.toMatchObject({ code: 'geocoding_failed' });
+    await expect(service.resolveText('Город Страна')).rejects.toMatchObject({ code: 'not_found' });
+    await expect(service.resolveText('Город Страна')).rejects.toMatchObject({ code: 'geocoding_failed' });
     const save = vi.spyOn(repo, 'saveDestination').mockRejectedValue(new Error('secret'));
     await expect(service.setDestination(author.user_id, candidate)).rejects.toMatchObject({ code: 'unavailable' });
     expect(save).toHaveBeenCalledTimes(1);
@@ -129,5 +132,49 @@ describe('destinations and traveler search', () => {
     repo.users.set('1001', { ...current, region: '', country_code: 'de' });
     const service = new LocationService(repo, { reverse: vi.fn() });
     expect((await service.findTravelers({ ...candidate, region: '' })).current).toHaveLength(1);
+  });
+
+  it('does not place a broad mark or destination in a narrower search', async () => {
+    const repo = new MemoryRepository();
+    const service = new LocationService(repo, { reverse: vi.fn() });
+    const country: PlaceCandidate = { ...candidate, type: 'country' };
+    const region: PlaceCandidate = { ...candidate, type: 'state' };
+    const county: PlaceCandidate = { ...candidate, type: 'county', county: 'Район' };
+    const city: PlaceCandidate = { ...candidate, county: 'Район' };
+    for (const [index, mark] of [country, region, county, city].entries()) {
+      const id = String(index);
+      await service.setTextLocation({ ...author, user_id: id }, mark);
+      await service.setDestination(id, mark);
+    }
+    for (const [query, expected] of [[country, 4], [region, 3], [county, 2], [city, 1]] as const) {
+      const result = await service.findTravelers(query);
+      expect(result.current).toHaveLength(expected);
+      expect(result.planned).toHaveLength(expected);
+    }
+    expect(repo.users.get('0')).toMatchObject({ city: '', region: '', county: '', location: 'Германия' });
+    expect(repo.users.get('1')).toMatchObject({ city: '', region: 'Берлин', county: '' });
+  });
+
+  it('keeps counties separate and avoids duplicated country and region labels', async () => {
+    const repo = new MemoryRepository();
+    const service = new LocationService(repo, { reverse: vi.fn() });
+    for (const county of ['Первый район', 'Второй район']) {
+      await service.setTextLocation({ ...author, user_id: county }, { ...candidate, type: 'county', county });
+    }
+    const groups = await service.listGroups();
+    expect(groups).toHaveLength(2);
+    expect(groups.map((group) => group.label)).toEqual(['Второй район, Берлин, Германия', 'Первый район, Берлин, Германия']);
+    expect(locationLabel({ city: '', region: '', country: 'Грузия' })).toBe('Грузия');
+    expect(locationLabel({ city: 'Берлин', region: 'берлин', country: 'Германия' })).toBe('Берлин, Германия');
+  });
+
+  it.each([
+    { type: 'city', city: '' }, { type: 'state', region: '' }, { type: 'county', county: '' },
+    { type: 'country', country: '' }, { country_code: 'invalid' }, { latitude: NaN },
+  ])('rejects invalid place components before storing %j', async (fields) => {
+    const repo = new MemoryRepository();
+    const service = new LocationService(repo, { reverse: vi.fn() });
+    await expect(service.setTextLocation(author, { ...candidate, ...fields } as PlaceCandidate)).rejects.toMatchObject({ code: 'invalid_input' });
+    expect(repo.history).toHaveLength(0);
   });
 });

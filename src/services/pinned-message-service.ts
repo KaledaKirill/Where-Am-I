@@ -3,6 +3,7 @@ import type { Api } from 'grammy';
 import type { LocationRepository } from '../domain/location-repository.js';
 import type { LocationService } from './location-service.js';
 import { formatListParts } from '../bot/formatting.js';
+import { groupKeyboard } from '../bot/keyboards.js';
 import { safeError, silentLogger } from '../logging.js';
 import type { AppLogger } from '../logging.js';
 
@@ -14,6 +15,7 @@ export class PinnedMessageService {
     private readonly api: Pick<Api, 'sendMessage' | 'editMessageText' | 'pinChatMessage' | 'unpinChatMessage'>,
     private readonly groupId: string,
     private readonly logger: AppLogger = silentLogger,
+    private readonly botUsername?: string,
   ) {}
 
   async update(): Promise<void> {
@@ -28,6 +30,9 @@ export class PinnedMessageService {
 
   private async refresh(): Promise<void> {
     const parts = formatListParts(await this.service.listGroups());
+    const options = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true },
+      ...(this.botUsername ? { reply_markup: groupKeyboard(this.botUsername) } : {}),
+    };
     const stored = await this.repository.getSetting('pinned_message_id');
     const first = stored && /^[1-9]\d*$/.test(stored) && Number.isSafeInteger(Number(stored)) ? Number(stored) : null;
     const extraStored = await this.repository.getSetting('pinned_message_ids');
@@ -39,14 +44,14 @@ export class PinnedMessageService {
       let id = ids[index];
       if (id) {
         try {
-          await this.api.editMessageText(this.groupId, id, text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+          await this.api.editMessageText(this.groupId, id, text, options);
         } catch (error) {
           if (error instanceof GrammyError && error.error_code === 400 && error.description.toLowerCase().includes('message to edit not found')) id = null;
           else if (!(error instanceof GrammyError && error.error_code === 400 && error.description.toLowerCase().includes('message is not modified'))) throw error;
         }
       }
       if (!id) {
-        const message = await this.api.sendMessage(this.groupId, text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true } });
+        const message = await this.api.sendMessage(this.groupId, text, options);
         id = message.message_id;
         ids[index] = id;
         // Store before pinning so retries repair the same known message.

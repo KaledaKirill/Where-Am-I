@@ -26,7 +26,7 @@ async function main(): Promise<void> {
   const bot = new Bot(config.TELEGRAM_BOT_TOKEN, { client: { timeoutSeconds: 10 } });
   startupStage = 'telegram_initialize';
   await logOperation(logger, 'telegram_initialize', () => bot.init());
-  const pinned = new PinnedMessageService(repository, service, bot.api, config.TELEGRAM_GROUP_ID, logger);
+  const pinned = new PinnedMessageService(repository, service, bot.api, config.TELEGRAM_GROUP_ID, logger, bot.botInfo.username);
   startupStage = 'pinned_message_refresh';
   if (!migrationRequired) await pinned.update();
   const app = createApp(config, service, bot, logger, pinned);

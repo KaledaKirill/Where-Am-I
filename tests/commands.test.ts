@@ -11,15 +11,16 @@ function setup() {
 }
 
 describe('Telegram commands', () => {
-  it('sends a location request keyboard and Russian instructions in private chat', async () => {
+  it('shows four main actions and requests location only in check-in mode', async () => {
     const f = setup();
     await f.bot.handleUpdate(messageUpdate('/start', 1001));
-    expect(f.calls[0]?.payload.text).toBe(START_TEXT);
-    const keyboard = f.calls[0]?.payload.reply_markup as { keyboard: { text: string; request_location?: boolean }[][] };
-    expect(keyboard.keyboard[0]).toEqual([{ text: '📍 Отправить геолокацию', request_location: true }]);
-    expect(keyboard.keyboard.flat().map((button) => button.text)).toContain('🔎 Найти путешественников');
+    expect(f.calls.at(-1)?.payload.text).toBe(START_TEXT);
+    const keyboard = f.calls.at(-1)?.payload.reply_markup as { keyboard: { text: string; request_location?: boolean }[][] };
+    expect(keyboard.keyboard.flat().map((button) => button.text)).toEqual(['📍 Отметиться', '✈️ Мои планы', '🔎 Найти участников', '🌍 Кто где']);
     await f.bot.handleUpdate(messageUpdate('/help@WhereAmIBot', 1001));
     expect(f.calls.at(-1)?.payload.text).toBe(HELP_TEXT);
+    await f.bot.handleUpdate(messageUpdate('/checkin', 1001));
+    expect(f.calls.at(-1)?.payload.reply_markup).toMatchObject({ keyboard: [[{ text: '📍 Отправить геолокацию', request_location: true }], ...keyboard.keyboard, [{ text: '🏠 Главное меню' }]] });
     expect(f.repo.history).toHaveLength(0);
   });
 
@@ -31,8 +32,8 @@ describe('Telegram commands', () => {
     expect(f.repo.users.size).toBe(1);
     expect(f.repo.history).toHaveLength(2);
     expect(f.calls.filter((c) => c.method === 'sendMessage' && c.payload.chat_id === env.TELEGRAM_GROUP_ID)).toHaveLength(1);
-    expect(f.calls.at(-2)?.payload.text).toBe('✅ Вы отметились: Берлин, Германия');
-    expect(f.calls.at(-1)?.payload.text).toContain('✈️ Куда направляешься?');
+    expect(f.calls.at(-1)?.payload.text).toBe('<b>✅ Место сохранено</b>\n\n📍 Берлин, Германия');
+    expect(f.calls.filter((c) => c.method === 'sendMessage' && c.payload.chat_id === 1001)).toHaveLength(2);
     expect(f.repo.settings.get('pinned_message_id')).toBe('100');
     await f.bot.handleUpdate(messageUpdate('/list'));
     const pinnedText = f.calls.find((c) => c.method === 'editMessageText')?.payload.text;
@@ -47,7 +48,7 @@ describe('Telegram commands', () => {
     await f.bot.handleUpdate(locationUpdate());
     expect(f.geocoder.reverse).not.toHaveBeenCalled();
     expect(f.repo.history).toHaveLength(0);
-    expect(f.calls.at(-1)?.payload.text).toContain('только участникам');
+    expect(f.calls.at(-1)?.payload.text).toContain('Бот доступен участникам');
   });
 
   it('does not allow membership API failure to bypass authorization', async () => {
@@ -66,7 +67,7 @@ describe('Telegram commands', () => {
     expect(f.calls.at(-1)?.payload.text).toContain('Не удалось определить');
     vi.spyOn(f.repo, 'saveLocation').mockRejectedValue(new Error('secret'));
     await f.bot.handleUpdate(locationUpdate());
-    expect(f.calls.at(-1)?.payload.text).toContain('временно недоступен');
+    expect(f.calls.at(-1)?.payload.text).toContain('Не удалось сохранить изменения');
     expect(f.repo.history).toHaveLength(0);
   });
 
@@ -75,11 +76,11 @@ describe('Telegram commands', () => {
     const getSetting = vi.spyOn(f.repo, 'getSetting').mockRejectedValueOnce(new Error('Sheets unavailable'));
     await f.bot.handleUpdate(locationUpdate());
     expect(f.repo.history).toHaveLength(1);
-    expect(f.calls.at(-2)?.payload.text).toContain('✅ Вы отметились');
+    expect(f.calls.at(-1)?.payload.text).toContain('✅ Место сохранено');
     await f.bot.handleUpdate(locationUpdate());
     expect(getSetting).toHaveBeenCalledTimes(3);
     expect(f.repo.history).toHaveLength(2);
-    expect(f.repo.settings.get('pinned_message_id')).toBe('102');
+    expect(f.repo.settings.get('pinned_message_id')).toBe('101');
   });
 
   it('ignores group locations, removed commands, ordinary text and edited live locations', async () => {
@@ -103,7 +104,7 @@ describe('Telegram commands', () => {
     expect(f.calls.at(-1)?.payload.text).toBe(groupText);
     f.transport.mockResolvedValueOnce({ ok: true, result: { status: 'left' } });
     await f.bot.handleUpdate(messageUpdate('/list', 1001));
-    expect(f.calls.at(-1)?.payload.text).toContain('только участникам');
+    expect(f.calls.at(-1)?.payload.text).toContain('Бот доступен участникам');
   });
 
   it('sends an oversized list in complete linked fragments without losing text', async () => {
@@ -120,7 +121,7 @@ describe('Telegram commands', () => {
     const f = setup();
     await f.bot.handleUpdate(membershipUpdate());
     expect(f.calls.filter((c) => c.method === 'setMyCommands')).toHaveLength(2);
-    expect(f.calls[0]?.payload.commands).toEqual([{ command: 'list', description: 'Где сейчас путешественники' }]);
+    expect(f.calls[0]?.payload.commands).toEqual([{ command: 'list', description: 'Где участники группы' }]);
     await f.bot.handleUpdate(membershipUpdate(false));
     await f.bot.handleUpdate(callbackUpdate());
     expect(f.calls.at(-1)?.method).toBe('answerCallbackQuery');

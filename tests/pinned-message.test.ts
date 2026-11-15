@@ -16,6 +16,9 @@ it('creates and stores one pin, serializes concurrent refreshes and edits after 
     (c.payload.link_preview_options as { is_disabled?: boolean } | undefined)?.is_disabled === true,
   )).toBe(true);
   expect(f.repo.settings.get('pinned_message_id')).toBe('100');
+  expect(f.calls.find((call) => call.method === 'sendMessage')?.payload.reply_markup).toMatchObject({
+    inline_keyboard: [[{ text: '📍 Отметиться в боте', url: 'https://t.me/WhereAmIBot?start=checkin' }]],
+  });
   await new PinnedMessageService(f.repo, f.service, f.bot.api, env.TELEGRAM_GROUP_ID).update();
   expect(f.calls.filter((c) => c.method === 'editMessageText')).toHaveLength(2);
 });

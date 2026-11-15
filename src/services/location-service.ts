@@ -21,7 +21,7 @@ export class LocationService {
     return this.saveLocation(author, { ...place, ...coordinates, location: locationLabel(place), coordinate_source: 'telegram' });
   }
 
-  async resolveText(query: string, settlementsOnly: boolean): Promise<PlaceCandidate[]> {
+  async resolveText(query: string): Promise<PlaceCandidate[]> {
     const text = query.normalize('NFKC').trim().replace(/\s+/gu, ' ');
     if (text.length < 2 || text.length > 200 || !/^[\p{L}\p{M}\p{N}\s,.'’-]+$/u.test(text) || !/\p{L}/u.test(text)) {
       throw new LocationError('invalid_input');
@@ -29,7 +29,7 @@ export class LocationService {
     let candidates: PlaceCandidate[];
     try {
       if (!this.geocoder.search) throw new Error('Search geocoder unavailable');
-      candidates = await this.geocoder.search(text, settlementsOnly);
+      candidates = await this.geocoder.search(text, false);
     } catch (error) { throw new LocationError('geocoding_failed', { cause: error }); }
     if (!candidates.length) throw new LocationError('not_found');
     return candidates;
@@ -41,10 +41,16 @@ export class LocationService {
   }
 
   private destination(candidate: PlaceCandidate): Destination {
-    if (candidate.type !== 'city' || !candidate.city || !candidate.country || !candidate.country_code || !validCoordinates(candidate)) {
+    if (!['city', 'state', 'county', 'country'].includes(candidate.type)
+      || (candidate.type === 'city' && !candidate.city.trim())
+      || (candidate.type === 'state' && !candidate.region.trim())
+      || (candidate.type === 'county' && !candidate.county?.trim())
+      || !candidate.country.trim() || !/^[a-z]{2}$/.test(candidate.country_code ?? '') || !validCoordinates(candidate)) {
       throw new LocationError('invalid_input');
     }
-    return { city: candidate.city, region: candidate.region, county: candidate.county || '', country: candidate.country,
+    return { city: candidate.type === 'city' ? candidate.city : '',
+      region: candidate.type === 'country' ? '' : candidate.region,
+      county: ['city', 'county'].includes(candidate.type) ? candidate.county || '' : '', country: candidate.country,
       country_code: candidate.country_code, latitude: candidate.latitude, longitude: candidate.longitude };
   }
 
@@ -59,7 +65,11 @@ export class LocationService {
   }
 
   async hasLocation(userId: string): Promise<boolean> {
-    try { return !!await this.repository.getUser(userId); }
+    return !!await this.getUser(userId);
+  }
+
+  async getUser(userId: string): Promise<CurrentUser | null> {
+    try { return await this.repository.getUser(userId); }
     catch (error) { throw new LocationError('unavailable', { cause: error }); }
   }
 
@@ -94,7 +104,7 @@ export class LocationService {
     const collator = new Intl.Collator('ru');
     const grouped = new Map<string, CurrentUser[]>();
     for (const user of users) {
-      const key = JSON.stringify([user.country, user.region, user.city].map((s) => s.normalize('NFKC').trim().toLocaleLowerCase('ru')));
+      const key = JSON.stringify([user.country, user.region, user.city, user.city ? '' : user.county || ''].map(normalizePlace));
       const group = grouped.get(key) ?? [];
       group.push(user);
       grouped.set(key, group);

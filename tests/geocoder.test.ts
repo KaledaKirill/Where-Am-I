@@ -95,13 +95,13 @@ describe('interactive Geoapify search', () => {
     f.fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ results: [cityResult], query: { parsed: { country: 'рф' } } })));
     expect(await f.geocoder.search('Нижний Новгород РФ', true)).toMatchObject([{ exact: false }]);
     f.fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ results: [cityResult], query: { parsed: { country: 'Россия' } } })));
-    expect(await f.geocoder.search('Россия', true)).toEqual([]);
+    expect(await f.geocoder.search('Россия', true)).toMatchObject([{ exact: false }]);
   });
 
   it('keeps corrections for confirmation, rejects low confidence, missing countries, invalid coordinates and addresses', async () => {
     const f = setup([{ ...cityResult, rank: { confidence: 0.95, match_type: 'full_match' } }]);
     expect(await f.geocoder.search('Нижний Новогрод Россия', true)).toMatchObject([{ exact: false }]);
-    expect(await f.geocoder.search('Нижний Новгород', true)).toEqual([]);
+    expect(await f.geocoder.search('Нижний Новгород', true)).toMatchObject([{ exact: false }]);
     for (const change of [{ rank: { confidence: 0.8 } }, { result_type: 'street' }, { lat: 100 }, { country_code: undefined }]) {
       expect(await setup([{ ...cityResult, ...change }]).geocoder.search('Нижний Новгород Россия', true)).toEqual([]);
     }

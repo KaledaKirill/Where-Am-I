@@ -13,6 +13,8 @@ it('registers commands in the target group and a protected serial webhook withou
   expect(api.setMyCommands.mock.calls.at(-2)?.[1]).toEqual({ scope: { type: 'chat', chat_id: '-100123' }, language_code: 'ru' });
   expect(api.setMyCommands.mock.calls.at(-1)?.[1]).toEqual({ scope: { type: 'chat', chat_id: '-100123' } });
   for (const [commands] of api.setMyCommands.mock.calls) expect(commands.map((c: { command: string }) => c.command)).not.toContain('set');
+  const privateMenu = api.setMyCommands.mock.calls.find(([, options]) => options.scope.type === 'all_private_chats')?.[0];
+  expect(privateMenu?.map((command: { command: string }) => command.command)).toEqual(['checkin', 'destination', 'find', 'list', 'start', 'help']);
   expect(api.setMyDescription).toHaveBeenCalledWith(BOT_DESCRIPTION);
   expect(api.setMyDescription).toHaveBeenCalledWith(BOT_DESCRIPTION, { language_code: 'ru' });
   expect(api.setWebhook).toHaveBeenCalledWith('https://where-am-i.onrender.com/telegram/webhook', {
