@@ -59,7 +59,9 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
   const emit = async (ctx: Context, text: string, inline?: InlineKeyboard, edit = false) => {
     const variant = keyboardMode(ctx);
     const options = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true } };
-    if (edit && ctx.callbackQuery?.message && keyboards.get(ctx.chat!.id) === variant) {
+    // A draft already contains the place. Inline clarification can reuse the
+    // installed navigation instead of adding a message just to change it.
+    if (edit && ctx.callbackQuery?.message && (keyboards.get(ctx.chat!.id) === variant || (inline && keyboards.has(ctx.chat!.id)))) {
       try {
         await ctx.editMessageText(text, { ...options, reply_markup: inline ?? new InlineKeyboard() });
       } catch (error) { if (!ignoreUnmodified(error)) throw error; }
@@ -149,11 +151,11 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
       await emit(ctx, TEXT.noLocation);
       return;
     }
+    if (draft) { await resolve(ctx, draft, mode); return; }
     const prompt = mode === 'destination' && editing ? TEXT.editDestination : TEXT[mode];
     if (mode === 'find' && await service.hasLocation(String(ctx.from!.id))) {
       await emit(ctx, prompt, nearbyKeyboard(state.token), true);
     } else await emit(ctx, prompt, mode === 'current' ? undefined : homeButton(new InlineKeyboard(), state.token), true);
-    if (draft) await resolve(ctx, draft, mode);
   };
   const plans = async (ctx: Context) => {
     const state = await begin(ctx, 'plans');

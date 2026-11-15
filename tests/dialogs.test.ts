@@ -42,11 +42,50 @@ describe('explicit private dialogs', () => {
     expect(text(f)).toBe('<b>Что сделать с этим местом?</b>\n\nБерлин');
     expect(f.geocoder.search).not.toHaveBeenCalled();
     expect(f.repo.history).toHaveLength(0);
+    const choice = button(f, mode);
+    const before = f.calls.length;
     await click(f, mode);
+    const replies = f.calls.slice(before).filter((call) => ['sendMessage', 'editMessageText'].includes(call.method) && call.payload.chat_id === 1001);
+    expect(replies).toHaveLength(1);
+    expect(replies[0]?.method).toBe('editMessageText');
+    expect(replies[0]?.payload.message_id).toBe(choice.messageId);
     expect(f.geocoder.search).toHaveBeenLastCalledWith('Берлин', false);
     expect(f.repo.history).toHaveLength(mode === 'current' ? 1 : 0);
     expect(f.repo.users.get('1001')?.destination?.city ?? null).toBe(mode === 'destination' ? 'Берлин' : null);
     expect(text(f)).toContain(mode === 'find' ? 'Отметились здесь' : mode === 'destination' ? 'Планы сохранены' : 'Место сохранено');
+  });
+
+  it.each(['current', 'destination', 'find'])('clarifies an idle draft in %s without sending input instructions or another home card', async (mode) => {
+    const f = setup();
+    f.repo.users.set('1001', current);
+    f.geocoder.search.mockResolvedValue([{ ...candidate, exact: false }]);
+    await say(f, 'Берлн');
+    const choice = button(f, mode);
+    const before = f.calls.length;
+    await click(f, mode);
+    const replies = f.calls.slice(before).filter((call) => ['sendMessage', 'editMessageText'].includes(call.method) && call.payload.chat_id === 1001);
+    expect(replies).toHaveLength(1);
+    expect(replies[0]?.method).toBe('editMessageText');
+    expect(replies[0]?.payload.message_id).toBe(choice.messageId);
+    expect(text(f)).toContain('Возможно, ты имеешь в виду');
+    expect(f.repo.history).toHaveLength(0);
+    await click(f, 'select:0');
+    expect(text(f)).toContain(mode === 'find' ? 'Отметились здесь' : mode === 'destination' ? 'Планы сохранены' : 'Место сохранено');
+  });
+
+  it('keeps current input and the location button available when an idle draft cannot be resolved', async () => {
+    const f = setup();
+    await say(f, 'НетТакогоМеста');
+    f.geocoder.search.mockResolvedValueOnce([]);
+    const before = f.calls.length;
+    await click(f, 'current');
+    const replies = f.calls.slice(before).filter((call) => call.method === 'sendMessage' && call.payload.chat_id === 1001);
+    expect(replies).toHaveLength(1);
+    expect(text(f)).toContain('Не удалось найти это место');
+    const keyboard = replies[0]?.payload.reply_markup as { keyboard: { text: string; request_location?: boolean }[][] };
+    expect(keyboard.keyboard[0]).toEqual([{ text: BUTTONS.location, request_location: true }]);
+    await say(f, 'Берлин');
+    expect(f.repo.history).toHaveLength(1);
   });
 
   it('finishes check-in with one confirmation and leaves existing plans unchanged', async () => {
