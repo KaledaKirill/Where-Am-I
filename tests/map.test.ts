@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
+import { Api } from 'grammy';
 import type { Logger } from 'pino';
 import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
@@ -13,6 +14,7 @@ import type { MapPlace } from '../src/map/types.js';
 import { botFixture, messageUpdate } from './bot-fixture.js';
 import { candidate, current, env, event } from './fixtures.js';
 import { registerCommands } from '../src/bot/commands.js';
+import { isGroupMember } from '../src/bot/membership.js';
 import { captureLogs } from './logging-fixture.js';
 
 function launchData(id: number, timestamp = Date.now(), token = env.TELEGRAM_BOT_TOKEN) {
@@ -148,6 +150,29 @@ describe('Telegram Mini App map API', () => {
       event: 'map_data_unavailable', stage: 'history_sheet', error_code: 'ETIMEDOUT',
     }));
     expect(logs.output()).not.toContain('private location');
+    await app.close();
+  });
+
+  it('retries a grammY membership deadline and still requires a successful Telegram check', async () => {
+    const logs = captureLogs();
+    const { app, member, history } = fixture(logs.logger);
+    const fetcher = vi.fn(async () => new Promise<never>(() => {}));
+    const api = new Api(env.TELEGRAM_BOT_TOKEN, { timeoutSeconds: 0.01, fetch: fetcher });
+    member.mockImplementation(id => isGroupMember(api, env.TELEGRAM_GROUP_ID, id));
+    const request = () => app.inject({ method: 'POST', url: '/api/map/data',
+      headers: { authorization: `Bearer ${mapAuth(env.TELEGRAM_BOT_TOKEN).issue(1001)}` }, payload: { mode: 'mine' } });
+
+    expect((await request()).statusCode).toBe(503);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(history).not.toHaveBeenCalled();
+    expect(logs.records).toContainEqual(expect.objectContaining({ event: 'map_data_unavailable',
+      stage: 'viewer_membership', attempts: 2, error_type: 'TimeoutError', error_code: 'ETIMEDOUT' }));
+
+    member.mockImplementationOnce(id => isGroupMember(api, env.TELEGRAM_GROUP_ID, id)).mockResolvedValueOnce(true);
+    expect((await request()).statusCode).toBe(200);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(member).toHaveBeenCalledTimes(4);
+    expect(history).toHaveBeenCalledTimes(1);
     await app.close();
   });
 

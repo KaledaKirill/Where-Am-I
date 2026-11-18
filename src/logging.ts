@@ -7,6 +7,7 @@ export type AppLogger = Pick<Logger, 'debug' | 'info' | 'warn' | 'error'>;
 export const silentLogger = pino({ enabled: false });
 const levels = new Set(['debug', 'info', 'warn', 'error', 'silent']);
 const networkCodes = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_SOCKET']);
+const telegramDeadlineMessage = /^Request to '[A-Za-z][A-Za-z0-9]*' timed out after \d+(?:\.\d+)? seconds$/;
 const telegramReasons = new Map([
   ['bad request: chat not found', 'chat_not_found'],
   ['bad request: chat_id_invalid', 'chat_id_invalid'],
@@ -46,7 +47,14 @@ export function createLogger(level: unknown = process.env.LOG_LEVEL, destination
 /** Do not serialize SDK errors: messages, stacks, URLs and causes may contain credentials. */
 export function safeError(error: unknown, depth = 0): Record<string, string | number | string[]> {
   if (depth > 4) return { error_type: 'unknown' };
-  if (error instanceof BotError || error instanceof HttpError) return safeError(error.error, depth + 1);
+  if (error instanceof HttpError) {
+    // grammY wraps its request deadline in a plain Error without a network code.
+    if (error.error instanceof Error && telegramDeadlineMessage.test(error.error.message)) {
+      return { error_type: 'TimeoutError', error_code: 'ETIMEDOUT' };
+    }
+    return safeError(error.error, depth + 1);
+  }
+  if (error instanceof BotError) return safeError(error.error, depth + 1);
   const fields: Record<string, string | number | string[]> = {
     error_type: error instanceof LocationError ? 'LocationError' : error instanceof GrammyError ? 'TelegramApiError' : 'Error',
   };
