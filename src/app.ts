@@ -6,6 +6,7 @@ import type { LocationService } from './services/location-service.js';
 import { registerCommands } from './bot/commands.js';
 import { createLogger, safeError } from './logging.js';
 import type { Logger } from 'pino';
+import packageInfo from '../package.json' with { type: 'json' };
 import type { PinnedMessageService } from './services/pinned-message-service.js';
 import { registerMapRoutes } from './map/routes.js';
 import type { MapService } from './map/service.js';
@@ -26,7 +27,7 @@ export function createApp(config: Config, service: LocationService, bot = new Bo
     }
   });
   app.get('/health', async (_request, reply) => {
-    reply.header('X-App-Version', '1.0.2');
+    reply.header('X-App-Version', packageInfo.version);
     reply.header('X-App-Revision', process.env.RENDER_GIT_COMMIT ?? 'development');
     return { status: 'ok' };
   });

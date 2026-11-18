@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
+import packageInfo from '../package.json' with { type: 'json' };
 import { loadConfig } from '../src/config.js';
 import { env } from './fixtures.js';
 import { botFixture, locationUpdate } from './bot-fixture.js';
@@ -21,7 +22,7 @@ describe('HTTP application', () => {
     const response = await f.app.inject({ method: 'GET', url: '/health' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: 'ok' });
-    expect(response.headers['x-app-version']).toBe('1.0.2');
+    expect(response.headers['x-app-version']).toBe(packageInfo.version);
     expect(read).not.toHaveBeenCalled();
     expect(f.transport).not.toHaveBeenCalled();
   });

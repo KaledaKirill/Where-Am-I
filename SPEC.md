@@ -1,6 +1,6 @@
 # Where-Am-I — PRD и архитектура
 
-Версия 1.0.2, обновление UX от 15 ноября 2026 года.
+Версия 1.1.0, карта участников в Telegram Mini App.
 
 ## 1. Назначение и взаимодействие
 
@@ -136,7 +136,7 @@ Node.js 26.x, TypeScript strict, Fastify, grammY, `@googleapis/sheets`, `google-
 
 Переменные: `NODE_ENV`, `LOG_LEVEL`, `PORT`, `PUBLIC_BASE_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_GROUP_ID`, `TELEGRAM_WEBHOOK_SECRET`, `GOOGLE_SPREADSHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`, **`GEOAPIFY_API_KEY`**. PEM поддерживает реальные переводы строк и буквальные `\n`. Секреты не коммитятся. Старые Nominatim-переменные игнорируются.
 
-Render build: `npm ci --include=dev && npm run build`. Start: `node dist/scripts/register-webhook.js && npm run start`. `NODE_VERSION=26`, `NODE_ENV=production`, HTTPS origin в `PUBLIC_BASE_URL`, Health Check Path `/health`. При обновлении нормализованной версии 3 схема расширяется автоматически. Для старой несовместимой схемы сначала разворачивается новая версия в ожидании миграции, после завершения старого процесса вручную выполняется миграция. `/health` сохраняет прежнее тело и добавляет `X-App-Version: 1.0.2` и `X-App-Revision` из `RENDER_GIT_COMMIT` для проверки развёрнутого кода.
+Render build: `npm ci --include=dev && npm run build`. Start: `node dist/scripts/register-webhook.js && npm run start`. `NODE_VERSION=26`, `NODE_ENV=production`, HTTPS origin в `PUBLIC_BASE_URL`, Health Check Path `/health`. При обновлении нормализованной версии 3 схема расширяется автоматически. Для старой несовместимой схемы сначала разворачивается новая версия в ожидании миграции, после завершения старого процесса вручную выполняется миграция. `/health` возвращает `X-App-Version` из `package.json` и `X-App-Revision` из `RENDER_GIT_COMMIT` для проверки развёрнутого кода.
 
 GitHub Actions CI на push/PR: unit tests, lint, typecheck, build. Данные находятся в Sheets, не на диске Render.
 
