@@ -39,5 +39,5 @@ export interface MapSession {
   viewerId: string;
   styleUrl: string;
   darkStyleUrl: string;
-  checkInUrl: string;
+  checkInUrl?: string;
 }

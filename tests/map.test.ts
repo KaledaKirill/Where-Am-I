@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { Api } from 'grammy';
+import { Api, Bot } from 'grammy';
 import type { Logger } from 'pino';
 import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
@@ -46,6 +46,22 @@ function fixture(logger: Logger | boolean = false) {
 }
 
 describe('Telegram Mini App map API', () => {
+  it('starts serving HTTP with the map enabled before Telegram bot initialization', async () => {
+    const { repo, service } = botFixture();
+    const fetcher = vi.fn();
+    const bot = new Bot(env.TELEGRAM_BOT_TOKEN, { client: { fetch: fetcher } });
+    const map = new MapService(repo, async () => true, new PlaceResolver(async () => []));
+    const config = loadConfig({ ...env, GEOAPIFY_MAPS_API_KEY: 'public-tiles-key' });
+    const app = createApp(config, service, bot, false, undefined, map);
+
+    expect((await app.inject('/health')).statusCode).toBe(200);
+    const session = await app.inject({ method: 'POST', url: '/api/map/session', payload: { initData: launchData(1001) } });
+    expect(session.statusCode).toBe(200);
+    expect(session.json().checkInUrl).toBeUndefined();
+    expect(fetcher).not.toHaveBeenCalled();
+    await app.close();
+  });
+
   it('validates the Telegram launch, session identity and group membership on every request', async () => {
     const { app, member } = fixture();
     const start = (initData: string, origin = env.PUBLIC_BASE_URL) => app.inject({

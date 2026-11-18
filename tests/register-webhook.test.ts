@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import { registerWebhook } from '../scripts/register-webhook.js';
+import { registerWebhook } from '../src/bot/webhook-setup.js';
 import { loadConfig } from '../src/config.js';
 import { env } from './fixtures.js';
 import { BOT_DESCRIPTION } from '../src/bot/formatting.js';

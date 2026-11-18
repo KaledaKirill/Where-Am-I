@@ -20,7 +20,9 @@ export function createApp(config: Config, service: LocationService, bot = new Bo
   });
   registerCommands(bot, service, config.TELEGRAM_GROUP_ID, app.log, pinned, map ? config.MAP_APP_SHORT_NAME : undefined);
   const mapKey = config.GEOAPIFY_MAPS_API_KEY;
-  if (map && mapKey) app.register(async instance => registerMapRoutes(instance, config, map, mapKey, bot.botInfo.username));
+  if (map && mapKey) app.register(async instance => {
+    registerMapRoutes(instance, config, map, mapKey, () => bot.isInited() ? bot.botInfo.username : undefined);
+  });
   app.addHook('onResponse', async (request, reply) => {
     if (request.routeOptions.url === '/telegram/webhook') {
       request.log.debug({ event: 'webhook_request_completed', status_code: reply.statusCode, duration_ms: Math.round(reply.elapsedTime) });

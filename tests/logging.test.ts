@@ -5,7 +5,7 @@ import { LocationError } from '../src/domain/models.js';
 import { loadConfig } from '../src/config.js';
 import { registerCommands } from '../src/bot/commands.js';
 import { createApp } from '../src/app.js';
-import { registerWebhook } from '../scripts/register-webhook.js';
+import { registerWebhook } from '../src/bot/webhook-setup.js';
 import { botFixture, messageUpdate, callbackUpdate, locationUpdate } from './bot-fixture.js';
 import { env } from './fixtures.js';
 import { captureLogs } from './logging-fixture.js';

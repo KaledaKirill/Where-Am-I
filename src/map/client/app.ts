@@ -67,7 +67,7 @@ function showStatus(title?: string, options: { retry?: boolean; checkIn?: boolea
   element('status').hidden = !title;
   element('status-title').textContent = title ?? '';
   retry.hidden = !options.retry;
-  checkIn.hidden = !options.checkIn;
+  checkIn.hidden = !options.checkIn || !session?.checkInUrl;
 }
 
 function mapNote() {
@@ -225,7 +225,7 @@ async function launch() {
       ? 'Открой карту заново из бота' : 'Карта временно недоступна', { retry: status !== 401 && status !== 403 });
     return;
   }
-  checkIn.href = session.checkInUrl;
+  if (session.checkInUrl) checkIn.href = session.checkInUrl;
   if (!map) {
     try {
       map = new TravelMap(element('map'), dark ? session.darkStyleUrl : session.styleUrl, dark, openPlaces, unavailable => {

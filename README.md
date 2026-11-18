@@ -132,7 +132,7 @@ npm run migrate:locations -- --apply --overrides=overrides.json
 2. Выполните dry-run, проверьте пропуски и overrides. Сохраните резервную копию вне временного диска Render.
 3. Сначала разверните новую версию. На старой схеме она работает в ожидании ручной миграции и возвращает временную ошибку при обращении к данным. Старые записи сохраняются.
 4. Разверните новую версию одним инстансом. Build Command: `npm ci --include=dev && npm run build`.
-5. Start Command: `node dist/scripts/register-webhook.js && npm run start`. Environment: `NODE_VERSION=26`, `NODE_ENV=production`, остальные значения из таблицы. В `PUBLIC_BASE_URL` — реальный HTTPS origin Render.
+5. Start Command: `npm run start`. На Render приложение настраивает webhook после запуска HTTP-сервера и повторяет попытку при сбое. Environment: `NODE_VERSION=26`, `NODE_ENV=production`, остальные значения из таблицы. В `PUBLIC_BASE_URL` — реальный HTTPS origin Render.
 6. Health Check Path: `/health`. Дождитесь `webhook_setup_completed` и `app_ready`. Проверьте `200 {"status":"ok"}`, `X-App-Version` с версией из `package.json` и `X-App-Revision` с SHA нового коммита. Дождитесь завершения старого процесса Render, затем выполните разрешённый apply. Старую версию 2 после миграции запускать нельзя: она умеет очищать несовместимую схему.
 7. Проверьте личные `/start`, геопозицию, текстовую отметку, запись истории, планы, `/find`, `/list` и закреп в группе. Затем можно восстановить обычный автодеплой и удалить одноразовый скрипт с его тестами и npm-командой.
 

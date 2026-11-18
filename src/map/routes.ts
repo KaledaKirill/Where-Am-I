@@ -33,7 +33,7 @@ async function asset(file: string): Promise<Buffer> {
   }
 }
 
-export function registerMapRoutes(app: FastifyInstance, config: Config, service: MapService, mapKey: string, username: string) {
+export function registerMapRoutes(app: FastifyInstance, config: Config, service: MapService, mapKey: string, botUsername: () => string | undefined) {
   const auth = mapAuth(config.TELEGRAM_BOT_TOKEN);
   const origin = new URL(config.PUBLIC_BASE_URL).origin;
   const options = { bodyLimit: 128 * 1024 };
@@ -58,8 +58,9 @@ export function registerMapRoutes(app: FastifyInstance, config: Config, service:
       return reply.code(503).send({ error: 'unavailable' });
     }
     const style = (name: string) => `https://maps.geoapify.com/v1/styles/${name}/style.json?apiKey=${encodeURIComponent(mapKey)}&attribution=mandatory`;
+    const username = botUsername();
     const session: MapSession = { token: auth.issue(id), viewerId: String(id), styleUrl: style('positron'),
-      darkStyleUrl: style('dark-matter'), checkInUrl: `https://t.me/${username}?start=checkin` };
+      darkStyleUrl: style('dark-matter'), ...(username && { checkInUrl: `https://t.me/${username}?start=checkin` }) };
     return session;
   });
 
