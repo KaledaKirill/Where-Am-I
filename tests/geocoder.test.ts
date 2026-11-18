@@ -138,3 +138,27 @@ describe('interactive Geoapify search', () => {
     expect(f.fetcher).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('Geoapify map lookup', () => {
+  const province = { county: 'Сураттхани', country: 'Таиланд', country_code: 'th', result_type: 'county',
+    lat: 9.1, lon: 99.3, rank: { confidence: 1 } };
+
+  it('looks up counties without the unsupported type filter and retains the country restriction', async () => {
+    const f = setup([province, cityResult]);
+    expect(await f.geocoder.searchMapPlace('Сураттхани, Таиланд', 'county', 'th')).toMatchObject([
+      { county: 'Сураттхани', region: 'Сураттхани', type: 'county' },
+    ]);
+    const url = new URL(String(f.fetcher.mock.calls[0]?.[0]));
+    expect(url.searchParams.has('type')).toBe(false);
+    expect(url.searchParams.get('filter')).toBe('countrycode:th');
+  });
+
+  it('resolves older province labels without treating an ordinary county as its parent region', async () => {
+    const f = setup([province, { ...province, county: 'Район', state: 'Отдельная область' }]);
+    f.fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ results: [] })));
+    expect(await f.geocoder.searchMapPlace('Сураттхани, Таиланд', 'state', 'th')).toMatchObject([
+      { county: '', region: 'Сураттхани', type: 'state' },
+    ]);
+    expect(f.fetcher.mock.calls.map(([url]) => new URL(String(url)).searchParams.get('type'))).toEqual(['state', null]);
+  });
+});

@@ -34,6 +34,7 @@ export const currentUserSchema = locatedSchema.extend({
 });
 const historicalPlaceSchema = locatedSchema.pick({ city: true, region: true, county: true, country: true, country_code: true })
   .extend({ user_id: currentUserSchema.shape.user_id, recorded_at: z.string() });
+const placePointSchema = locatedSchema.pick({ latitude: true, longitude: true });
 
 export function cells(values: unknown[]): sheets_v4.Schema$RowData {
   return { values: values.map((value) => ({ userEnteredValue: { stringValue: value === null || value === undefined ? '' : String(value) } })) };
@@ -146,7 +147,9 @@ export class GoogleSheetsRepository implements LocationRepository {
         const record = Object.fromEntries(columns.map((name, index) => [name, String(row[index] ?? '')]));
         const parsed = historicalPlaceSchema.safeParse(record);
         if (!parsed.success) throw new Error('Некорректная запись LocationHistory');
-        history.push(parsed.data);
+        const geocodedPoint = record.coordinate_source === 'geocoded' && record.latitude && record.longitude
+          ? placePointSchema.safeParse(record) : undefined;
+        history.push({ ...parsed.data, ...(geocodedPoint?.success ? { geocodedPoint: geocodedPoint.data } : {}) });
       }
       return history;
     }, 'debug');

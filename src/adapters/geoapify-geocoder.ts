@@ -99,10 +99,23 @@ export class GeoapifyGeocoder implements Geocoder, ForwardGeocoder {
   }
 
   async searchMapPlace(query: string, type: PlaceType, countryCode?: string): Promise<PlaceCandidate[]> {
-    const { results } = await this.request('search', { text: query, type, limit: '5',
-      ...(countryCode ? { filter: `countrycode:${countryCode}` } : {}),
+    const parameters = { text: query, limit: '5', ...(countryCode ? { filter: `countrycode:${countryCode}` } : {}) };
+    if (type === 'county') {
+      // Geoapify returns counties, but rejects county as a request filter.
+      const { results } = await this.request('search', parameters);
+      return this.candidates(query, results, ['county']);
+    }
+    const { results } = await this.request('search', { ...parameters, type });
+    const matched = this.candidates(query, results, [type]);
+    if (type !== 'state' || matched.length) return matched;
+
+    const unrestricted = await this.request('search', parameters);
+    return this.candidates(query, unrestricted.results, ['state', 'county']).flatMap<PlaceCandidate>(candidate => {
+      if (candidate.type === 'state') return [candidate];
+      // Some provinces are classified as counties without a separate parent state.
+      if (normalizePlace(candidate.county ?? '') !== normalizePlace(candidate.region)) return [];
+      return [{ ...candidate, type: 'state', county: '' }];
     });
-    return this.candidates(query, results, [type]);
   }
 
   private candidates(query: string, results: Result[], types: PlaceType[]): PlaceCandidate[] {

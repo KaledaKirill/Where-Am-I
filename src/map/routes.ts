@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Config } from '../config.js';
-import { safeError } from '../logging.js';
 import { mapAuth } from './auth.js';
+import { mapFailure, readMapDependency } from './dependencies.js';
 import type { MapService } from './service.js';
 import { mapModes } from './types.js';
 import type { MapSession } from './types.js';
@@ -52,9 +52,9 @@ export function registerMapRoutes(app: FastifyInstance, config: Config, service:
     const id = body.success ? auth.verifyLaunch(body.data.initData) : null;
     if (id === null) return reply.code(401).send({ error: 'invalid_launch' });
     try {
-      if (!await service.isMember(id)) return reply.code(403).send({ error: 'not_a_member' });
+      if (!await readMapDependency('viewer_membership', () => service.isMember(id))) return reply.code(403).send({ error: 'not_a_member' });
     } catch (error) {
-      request.log.warn({ event: 'map_membership_unavailable', ...safeError(error) });
+      request.log.warn({ event: 'map_membership_unavailable', ...mapFailure(error) });
       return reply.code(503).send({ error: 'unavailable' });
     }
     const style = (name: string) => `https://maps.geoapify.com/v1/styles/${name}/style.json?apiKey=${encodeURIComponent(mapKey)}&attribution=mandatory`;
@@ -71,10 +71,10 @@ export function registerMapRoutes(app: FastifyInstance, config: Config, service:
     const body = dataBody.safeParse(request.body);
     if (!body.success) return reply.code(400).send({ error: 'invalid_request' });
     try {
-      if (!await service.isMember(id)) return reply.code(403).send({ error: 'not_a_member' });
+      if (!await readMapDependency('viewer_membership', () => service.isMember(id))) return reply.code(403).send({ error: 'not_a_member' });
       return await service.data(id, body.data.mode, body.data.participantIds);
     } catch (error) {
-      request.log.warn({ event: 'map_data_unavailable', ...safeError(error) });
+      request.log.warn({ event: 'map_data_unavailable', ...mapFailure(error) });
       return reply.code(503).send({ error: 'unavailable' });
     }
   });

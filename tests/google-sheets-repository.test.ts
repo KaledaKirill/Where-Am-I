@@ -50,10 +50,12 @@ describe('GoogleSheetsRepository', () => {
     const columns = ['legacy_location', ...HISTORY_COLUMNS].reverse();
     const row = (record: Record<string, unknown>) => columns.map(column => String(record[column] ?? ''));
     const f = fakeSheets({ LocationHistory: [columns, row({ ...event, recorded_at: 'до переезда' }), [],
+      row({ ...event, coordinate_source: 'geocoded' }),
       row({ ...event, user_id: '2002', legacy_location: 'точный адрес' })] });
     const entries = await f.repo.listHistory(new Set(['1001']));
-    expect(entries).toEqual([{ user_id: '1001', city: 'Берлин', county: '', country: 'Германия', country_code: '',
-      region: 'Берлин', recorded_at: 'до переезда' }]);
+    const place = { user_id: '1001', city: 'Берлин', county: '', country: 'Германия', country_code: '', region: 'Берлин' };
+    expect(entries).toEqual([{ ...place, recorded_at: 'до переезда' },
+      { ...place, recorded_at: event.recorded_at, geocodedPoint: { latitude: event.latitude, longitude: event.longitude } }]);
   });
 
   it('accepts a manual migration after starting on a legacy schema without restarting', async () => {

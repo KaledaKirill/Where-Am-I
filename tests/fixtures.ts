@@ -25,7 +25,10 @@ export class MemoryRepository implements LocationRepository {
   async initialize() {}
   async getUser(id: string) { return this.users.get(id) ?? null; }
   async listUsers() { return [...this.users.values()]; }
-  async listHistory(ids: ReadonlySet<string>) { return this.history.filter(event => ids.has(event.user_id)); }
+  async listHistory(ids: ReadonlySet<string>) {
+    return this.history.filter(event => ids.has(event.user_id)).map(({ latitude, longitude, coordinate_source, ...place }) =>
+      ({ ...place, ...(coordinate_source === 'geocoded' ? { geocodedPoint: { latitude, longitude } } : {}) }));
+  }
   async saveLocation(user: CurrentUser, event: LocationHistoryEntry) {
     this.users.set(user.user_id, { ...user, destination: this.users.get(user.user_id)?.destination ?? null });
     this.history.push(event);

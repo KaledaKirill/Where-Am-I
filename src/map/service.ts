@@ -1,9 +1,11 @@
 import { z } from 'zod';
+import { validCoordinates } from '../domain/geocoder.js';
 import type { HistoricalPlace, LocationRepository } from '../domain/location-repository.js';
-import type { Place } from '../domain/models.js';
+import type { Coordinates, Place } from '../domain/models.js';
+import { readMapDependency } from './dependencies.js';
 import { countryCodes, describePlace } from './places.js';
 import type { PlaceResolver } from './places.js';
-import type { MapData, MapEvent, MapMode, MapTraveler } from './types.js';
+import type { MapData, MapEvent, MapMode, MapPoint, MapTraveler } from './types.js';
 
 const timestamp = z.union([z.iso.datetime({ offset: true }), z.iso.date()]);
 function time(value: string): number | null {
@@ -30,13 +32,14 @@ export class MapService {
 
   async data(viewerId: number, mode: MapMode, selectedIds?: string[]): Promise<MapData> {
     const viewer = String(viewerId);
-    const listed = await this.repository.listUsers();
+    const listed = await readMapDependency('users_sheet', () => this.repository.listUsers());
     const users = listed.filter(user => user.user_id === viewer);
     if (mode !== 'mine') {
       const others = listed.filter(user => user.user_id !== viewer);
       for (let start = 0; start < others.length; start += 8) {
         const batch = others.slice(start, start + 8);
-        const active = await Promise.all(batch.map(user => this.isMember(Number(user.user_id))));
+        const active = await Promise.all(batch.map(user =>
+          readMapDependency('participant_membership', () => this.isMember(Number(user.user_id)))));
         users.push(...batch.filter((_user, index) => active[index]));
       }
     }
@@ -45,12 +48,28 @@ export class MapService {
     const selection = selectedIds ? new Set(selectedIds) : undefined;
     const selected = users.filter(user => mode === 'mine' || !selection || selection.has(user.user_id));
     const ids = new Set(mode === 'mine' ? [viewer] : selected.map(user => user.user_id));
-    const history = mode === 'current' || !ids.size ? [] : (await this.repository.listHistory(ids)).filter(row => ids.has(row.user_id));
+    const history = mode === 'current' || !ids.size ? [] :
+      (await readMapDependency('history_sheet', () => this.repository.listHistory(ids))).filter(row => ids.has(row.user_id));
     const destinations = mode === 'plans' ? selected.flatMap(user => user.destination ? [user.destination] : []) : [];
     const inputPlaces = [...selected, ...history, ...destinations];
     const codes = countryCodes(inputPlaces);
-    const resolvingPlaces = await this.places.prepare(inputPlaces.map(place => describePlace(place, codes)));
-    const point = (place: Place) => this.places.point(describePlace(place, codes));
+    const identity = (place: Place) => describePlace(place, codes);
+    const known = new Map<string, MapPoint>();
+    const remember = (place: Place, coordinates: Coordinates | undefined) => {
+      const { id } = identity(place);
+      if (coordinates && validCoordinates(coordinates) && !known.has(id)) known.set(id, [coordinates.longitude, coordinates.latitude]);
+    };
+    // Text check-ins and destinations already store representatives resolved by Geoapify.
+    for (const user of selected) if (user.coordinate_source === 'geocoded') remember(user, user);
+    for (const place of destinations) remember(place, place);
+    for (const row of history) remember(row, row.geocodedPoint);
+    const unresolved = inputPlaces.map(identity).filter(place => !known.has(place.id));
+    const resolvingPlaces = await this.places.prepare(unresolved);
+    const point = (place: Place) => {
+      const normalized = identity(place);
+      const saved = known.get(normalized.id);
+      return saved ? { id: normalized.id, label: normalized.label, level: normalized.type, point: saved } : this.places.point(normalized);
+    };
     const event = (place: Place, value: number | null, isLatest?: boolean): MapEvent => ({
       place: point(place), date: value === null ? null : new Date(value).toISOString().slice(0, 10),
       ...(isLatest ? { isLatest } : {}),
@@ -64,7 +83,7 @@ export class MapService {
     const track = (id: string, latest: number | null, latestPlaceId?: string) => {
       const events = (historyByUser.get(id) ?? []).sort((a, b) => (a.instant ?? Infinity) - (b.instant ?? Infinity));
       return events.map(({ row, instant }) => event(row, instant,
-        latest !== null && instant === latest && describePlace(row, codes).id === latestPlaceId));
+        latest !== null && instant === latest && identity(row).id === latestPlaceId));
     };
     const travelers: MapTraveler[] = selected.map(user => {
       const instant = time(user.updated_at);

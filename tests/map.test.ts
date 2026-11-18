@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
+import type { Logger } from 'pino';
 import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { mapAuth } from '../src/map/auth.js';
@@ -12,6 +13,7 @@ import type { MapPlace } from '../src/map/types.js';
 import { botFixture, messageUpdate } from './bot-fixture.js';
 import { candidate, current, env, event } from './fixtures.js';
 import { registerCommands } from '../src/bot/commands.js';
+import { captureLogs } from './logging-fixture.js';
 
 function launchData(id: number, timestamp = Date.now(), token = env.TELEGRAM_BOT_TOKEN) {
   const fields = new URLSearchParams({ user: JSON.stringify({ id, first_name: 'Артём', username: 'artem' }),
@@ -26,7 +28,7 @@ function launchData(id: number, timestamp = Date.now(), token = env.TELEGRAM_BOT
 const center = { ...candidate, latitude: 52.51, longitude: 13.4 };
 const warsaw = { ...candidate, country: 'Польша', country_code: 'pl', city: 'Варшава', region: 'Мазовия', longitude: 21, latitude: 52.23 };
 
-function fixture() {
+function fixture(logger: Logger | boolean = false) {
   const { bot, repo, service } = botFixture();
   repo.users.set('1001', { ...current, destination: warsaw, latitude: 52.52111, longitude: 13.40222 });
   repo.users.set('1002', { ...current, user_id: '1002', display_name: 'Борис', destination: warsaw });
@@ -37,7 +39,7 @@ function fixture() {
   const member = vi.fn(async (id: number) => id !== 1003);
   const lookup = vi.fn(async (query: string) => [query.includes('Варшава') ? warsaw : center]);
   const map = new MapService(repo, member, new PlaceResolver(lookup));
-  const app = createApp(loadConfig({ ...env, GEOAPIFY_MAPS_API_KEY: 'public-tiles-key', MAP_APP_SHORT_NAME: 'travel_map' }), service, bot, false, undefined, map);
+  const app = createApp(loadConfig({ ...env, GEOAPIFY_MAPS_API_KEY: 'public-tiles-key', MAP_APP_SHORT_NAME: 'travel_map' }), service, bot, logger, undefined, map);
   return { repo, app, history, member, lookup };
 }
 
@@ -100,7 +102,7 @@ describe('Telegram Mini App map API', () => {
     expect(plans.body).not.toContain('52.52111');
     expect(plans.body).not.toContain('coordinate_source');
     expect(lookup.mock.calls.every(([query]) => !query.includes('52.52'))).toBe(true);
-    expect(lookup).toHaveBeenCalledTimes(2);
+    expect(lookup).toHaveBeenCalledTimes(1);
     const nothing = await request('history', []);
     expect(nothing.json().travelers).toEqual([]);
     repo.users.delete('1001');
@@ -109,6 +111,43 @@ describe('Telegram Mini App map API', () => {
     expect((await request('mine')).json().travelers).toEqual([]);
     history.mockRejectedValueOnce(new Error('Sheets unavailable'));
     expect((await request('mine')).statusCode).toBe(503);
+    await app.close();
+  });
+
+  it('renders saved text check-ins, older geocoded places and plans during a lookup outage', async () => {
+    const { app, repo, lookup } = fixture();
+    const user = repo.users.get('1001')!;
+    repo.users.set('1001', { ...user, coordinate_source: 'geocoded' });
+    repo.history.push({ ...event, ...warsaw, coordinate_source: 'geocoded', recorded_at: '2025-01-01' });
+    lookup.mockRejectedValue(new Error('Geoapify unavailable'));
+    const result = await app.inject({ method: 'POST', url: '/api/map/data',
+      headers: { authorization: `Bearer ${mapAuth(env.TELEGRAM_BOT_TOKEN).issue(1001)}` }, payload: { mode: 'plans', participantIds: ['1001'] } });
+    const [traveler] = result.json().travelers;
+    expect(traveler.current.place.point).toEqual([user.longitude, user.latitude]);
+    expect(traveler.destination.point).toEqual([warsaw.longitude, warsaw.latitude]);
+    expect(traveler.history[0].place.point).toEqual([warsaw.longitude, warsaw.latitude]);
+    expect(lookup).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('retries transient map reads once and reports the stage of a persistent failure', async () => {
+    const logs = captureLogs();
+    const { app, history, member } = fixture(logs.logger);
+    const timeout = Object.assign(new Error('private location'), { code: 'ETIMEDOUT' });
+    const request = () => app.inject({ method: 'POST', url: '/api/map/data',
+      headers: { authorization: `Bearer ${mapAuth(env.TELEGRAM_BOT_TOKEN).issue(1001)}` }, payload: { mode: 'mine' } });
+    member.mockRejectedValueOnce(timeout);
+    history.mockRejectedValueOnce(timeout);
+    expect((await request()).statusCode).toBe(200);
+    expect(member).toHaveBeenCalledTimes(2);
+    expect(history).toHaveBeenCalledTimes(2);
+    history.mockRejectedValue(timeout);
+    expect((await request()).statusCode).toBe(503);
+    expect(history).toHaveBeenCalledTimes(4);
+    expect(logs.records).toContainEqual(expect.objectContaining({
+      event: 'map_data_unavailable', stage: 'history_sheet', error_code: 'ETIMEDOUT',
+    }));
+    expect(logs.output()).not.toContain('private location');
     await app.close();
   });
 
@@ -153,6 +192,17 @@ describe('map rendering data', () => {
     expect(resolver.point(correct).point).toEqual([21, 52.23]);
     expect(resolver.point(elsewhere).point).toBeNull();
     expect(correct.id).not.toBe(elsewhere.id);
+  });
+
+  it('recognizes a legacy district stored as a region only with a matching city and country', async () => {
+    const shymkent = { ...candidate, city: 'Шымкент', region: '', country: 'Казахстан', country_code: 'kz' };
+    const lookup = vi.fn(async (query: string) => query === 'Абайский район, Шымкент, Казахстан' ? [shymkent] : []);
+    const resolver = new PlaceResolver(lookup);
+    const place = describePlace({ ...shymkent, country_code: '', region: 'Абайский район' }, new Map());
+    const unrelated = describePlace({ ...shymkent, country_code: '', region: 'Другая область' }, new Map());
+    await resolver.prepare([place, unrelated]);
+    expect(resolver.point(place).point).toEqual([shymkent.longitude, shymkent.latitude]);
+    expect(resolver.point(unrelated).point).toBeNull();
   });
 
   it('fits the shortest longitude interval and splits history across the date line and unresolved places', () => {

@@ -12,6 +12,7 @@ export interface PlaceIdentity {
   region: string;
   country: string;
   countryCode?: string;
+  legacyDistrict: boolean;
 }
 
 export function countryCodes(places: Place[]): Map<string, string> {
@@ -33,7 +34,8 @@ export function describePlace(place: Place, codes: Map<string, string>): PlaceId
   const region = (type === 'city' || type === 'county') && normalizePlace(place.region) !== normalizePlace(name) ? place.region : '';
   const label = locationLabel(place);
   const id = JSON.stringify([type, countryCode || normalizePlace(place.country), normalizePlace(region), normalizePlace(name)]);
-  return { id, label, type, name, region, country: place.country, countryCode };
+  const legacyDistrict = type === 'city' && !place.country_code && /^(?:район\s)|(?:\sрайон)$/u.test(normalizePlace(region));
+  return { id, label, type, name, region, country: place.country, countryCode, legacyDistrict };
 }
 
 export class PlaceResolver {
@@ -77,16 +79,21 @@ export class PlaceResolver {
     try {
       const query = [place.name, place.region, place.type !== 'country' ? place.country : ''].filter(Boolean).join(', ');
       const equals = (first: string, second: string) => normalizePlace(first) === normalizePlace(second);
-      const matches = (candidate: PlaceCandidate) => {
+      const matches = (candidate: PlaceCandidate, allowUnspecifiedRegion = false) => {
         const name = candidate.city || candidate.county || candidate.region || candidate.country;
         const candidateRegion = equals(name, candidate.region) ? '' : candidate.region;
         return candidate.type === place.type && equals(name, place.name) && validCoordinates(candidate)
           && (place.countryCode ? candidate.country_code === place.countryCode : equals(candidate.country, place.country))
-          && (!place.region || equals(place.region, candidateRegion));
+          && (!place.region || equals(place.region, candidateRegion)
+            || (allowUnspecifiedRegion && !candidate.region && candidate.confidence === 1));
       };
-      let candidates = (await this.lookup(query, place.type, place.countryCode)).filter(matches);
+      let candidates = (await this.lookup(query, place.type, place.countryCode)).filter(candidate => matches(candidate));
+      if (!candidates.length && place.legacyDistrict) {
+        const districtQuery = [place.region, place.name, place.country].join(', ');
+        candidates = (await this.lookup(districtQuery, place.type, place.countryCode)).filter(candidate => matches(candidate, true));
+      }
       if (!candidates.length && query !== place.name) {
-        candidates = (await this.lookup(place.name, place.type, place.countryCode)).filter(matches);
+        candidates = (await this.lookup(place.name, place.type, place.countryCode)).filter(candidate => matches(candidate));
       }
       const [first] = candidates;
       if (first && candidates.every(candidate => equals(candidate.region, first.region)

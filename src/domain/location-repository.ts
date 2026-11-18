@@ -1,6 +1,6 @@
-import type { CurrentUser, Destination, LocationHistoryEntry, Place } from './models.js';
+import type { Coordinates, CurrentUser, Destination, LocationHistoryEntry, Place } from './models.js';
 
-export type HistoricalPlace = Place & Pick<LocationHistoryEntry, 'user_id' | 'recorded_at'>;
+export type HistoricalPlace = Place & Pick<LocationHistoryEntry, 'user_id' | 'recorded_at'> & { geocodedPoint?: Coordinates };
 
 export interface LocationRepository {
   initialize(): Promise<void>;
