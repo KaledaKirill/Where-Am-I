@@ -12,10 +12,12 @@ const configSchema = z.object({
   TELEGRAM_WEBHOOK_SECRET: z.string().regex(/^[A-Za-z0-9_-]{1,256}$/),
   GOOGLE_SPREADSHEET_ID: z.string().regex(/^[A-Za-z0-9_-]+$/),
   GEOAPIFY_API_KEY: z.string().trim().min(1),
+  GEOAPIFY_MAPS_API_KEY: z.string().trim().min(1).optional(),
+  MAP_APP_SHORT_NAME: z.string().regex(/^[A-Za-z0-9_]{3,32}$/).optional(),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: z.email(),
   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: z.string().transform((value) => value.replace(/\\n/g, '\n'))
     .refine((value) => value.includes('-----BEGIN PRIVATE KEY-----') && value.includes('-----END PRIVATE KEY-----'), 'Некорректный PEM ключ'),
-});
+}).refine(config => !config.MAP_APP_SHORT_NAME || !!config.GEOAPIFY_MAPS_API_KEY, { path: ['GEOAPIFY_MAPS_API_KEY'] });
 
 export type Config = z.infer<typeof configSchema>;
 

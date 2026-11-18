@@ -16,6 +16,7 @@ export class PinnedMessageService {
     private readonly groupId: string,
     private readonly logger: AppLogger = silentLogger,
     private readonly botUsername?: string,
+    private readonly mapShortName?: string,
   ) {}
 
   async update(): Promise<void> {
@@ -31,7 +32,7 @@ export class PinnedMessageService {
   private async refresh(): Promise<void> {
     const parts = formatListParts(await this.service.listGroups());
     const options = { parse_mode: 'HTML' as const, link_preview_options: { is_disabled: true },
-      ...(this.botUsername ? { reply_markup: groupKeyboard(this.botUsername) } : {}),
+      ...(this.botUsername ? { reply_markup: groupKeyboard(this.botUsername, this.mapShortName) } : {}),
     };
     const stored = await this.repository.getSetting('pinned_message_id');
     const first = stored && /^[1-9]\d*$/.test(stored) && Number.isSafeInteger(Number(stored)) ? Number(stored) : null;

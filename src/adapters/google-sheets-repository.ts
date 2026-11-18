@@ -2,7 +2,7 @@ import { sheets, type sheets_v4 } from '@googleapis/sheets';
 import { GoogleAuth } from 'google-auth-library';
 import { z } from 'zod';
 import type { Config } from '../config.js';
-import type { LocationRepository } from '../domain/location-repository.js';
+import type { HistoricalPlace, LocationRepository } from '../domain/location-repository.js';
 import type { CurrentUser, Destination, LocationHistoryEntry } from '../domain/models.js';
 import { logOperation, silentLogger } from '../logging.js';
 import type { AppLogger } from '../logging.js';
@@ -32,6 +32,8 @@ export const currentUserSchema = locatedSchema.extend({
   user_id: z.string().regex(/^\d+$/), display_name: z.string().min(1),
   username: z.string().nullable(), updated_at: z.iso.datetime({ offset: true }),
 });
+const historicalPlaceSchema = locatedSchema.pick({ city: true, region: true, county: true, country: true, country_code: true })
+  .extend({ user_id: currentUserSchema.shape.user_id, recorded_at: z.string() });
 
 export function cells(values: unknown[]): sheets_v4.Schema$RowData {
   return { values: values.map((value) => ({ userEnteredValue: { stringValue: value === null || value === undefined ? '' : String(value) } })) };
@@ -131,6 +133,24 @@ export class GoogleSheetsRepository implements LocationRepository {
 
   async getUser(userId: string): Promise<CurrentUser | null> { return (await this.readUsers()).find(({ user }) => user.user_id === userId)?.user ?? null; }
   async listUsers(): Promise<CurrentUser[]> { return (await this.readUsers()).map(({ user }) => user); }
+
+  async listHistory(userIds: ReadonlySet<string>): Promise<HistoricalPlace[]> {
+    if (!userIds.size) return [];
+    return logOperation(this.logger, 'sheets_read_history', async () => {
+      if (!this.tables.size) await this.initialize();
+      const { columns } = this.table('LocationHistory');
+      const idColumn = columns.indexOf('user_id');
+      const history: HistoricalPlace[] = [];
+      for (const row of await this.readRows('LocationHistory')) {
+        if (!userIds.has(String(row[idColumn]))) continue;
+        const record = Object.fromEntries(columns.map((name, index) => [name, String(row[index] ?? '')]));
+        const parsed = historicalPlaceSchema.safeParse(record);
+        if (!parsed.success) throw new Error('Некорректная запись LocationHistory');
+        history.push(parsed.data);
+      }
+      return history;
+    }, 'debug');
+  }
 
   private async locked<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.writeLock;

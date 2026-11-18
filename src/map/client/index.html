@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Карта участников</title>
+  <link rel="stylesheet" href="/map/app.css">
+  <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script type="module" src="/map/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="heading">
+      <h1>Карта</h1>
+      <button id="mine" class="mine" type="button" aria-pressed="false" disabled>Моя история</button>
+      <button id="participants" class="filter" type="button" aria-haspopup="dialog" disabled aria-label="Участники">
+        Участники <span id="participant-count" class="count" hidden></span>
+      </button>
+    </div>
+    <div id="modes" class="modes" role="group" aria-label="Слои карты">
+      <button type="button" data-mode="current" aria-pressed="true" disabled>Сейчас</button>
+      <button type="button" data-mode="history" aria-pressed="false" disabled>История</button>
+      <button type="button" data-mode="plans" aria-pressed="false" disabled>История + планы</button>
+    </div>
+    <div id="my-tools" class="my-tools" hidden>
+      <button id="timeline" type="button" aria-haspopup="dialog">Список отметок</button>
+    </div>
+  </header>
+  <main class="map-area" aria-label="Карта мира">
+    <div id="map"></div>
+    <div class="map-tools" role="group" aria-label="Управление картой">
+      <button type="button" id="zoom-in" aria-label="Приблизить" disabled>+</button>
+      <button type="button" id="zoom-out" aria-label="Отдалить" disabled>−</button>
+      <button type="button" id="fit" aria-label="Показать выбранные точки" disabled>⌖</button>
+    </div>
+    <div id="status" class="status" role="status">
+      <strong id="status-title">Открываем карту…</strong>
+      <button id="retry" class="link-button" type="button" hidden>Повторить</button>
+      <a id="check-in" class="link-button" hidden>Отметиться в боте</a>
+    </div>
+    <div id="map-note" class="map-note" role="status" hidden></div>
+    <div class="map-footer">
+      <div id="legend" class="legend" aria-label="Условные обозначения">
+        <span><i class="sample-dot"></i>Отметки</span>
+        <span id="history-legend" hidden><i class="sample-line"></i>История</span>
+        <span id="plan-legend" hidden><i class="sample-dash"></i>Планы</span>
+      </div>
+      <button id="places" type="button" aria-haspopup="dialog" disabled>Места</button>
+    </div>
+  </main>
+  <dialog id="filter-sheet" aria-labelledby="filter-title">
+    <div class="sheet">
+      <div class="sheet-heading">
+        <h2 id="filter-title">Участники</h2>
+        <button class="close" type="button" aria-label="Закрыть выбор участников" autofocus>×</button>
+      </div>
+      <label for="search" class="sr-only">Поиск участников</label>
+      <input id="search" type="search" placeholder="Имя или @username" autocomplete="off">
+      <div class="bulk" role="group" aria-label="Действия с выбором">
+        <button id="clear" class="link-button" type="button">Снять выбор</button>
+        <button id="select-all" class="link-button" type="button">Выбрать всех</button>
+      </div>
+      <ul id="person-list" class="list" aria-label="Список участников"></ul>
+      <div class="sheet-actions"><button id="apply" class="primary" type="button">Показать на карте</button></div>
+    </div>
+  </dialog>
+  <dialog id="detail-sheet" aria-labelledby="detail-title">
+    <div class="sheet">
+      <div class="sheet-heading">
+        <h2 id="detail-title"></h2>
+        <button class="close" type="button" aria-label="Закрыть" autofocus>×</button>
+      </div>
+      <div id="detail-body" class="list"></div>
+    </div>
+  </dialog>
+  <noscript>Для карты нужен JavaScript.</noscript>
+</body>
+</html>

@@ -6,12 +6,13 @@ import { locationLabel } from '../domain/geocoder.js';
 import type { LocationService } from '../services/location-service.js';
 import type { PinnedMessageService } from '../services/pinned-message-service.js';
 import { formatChoices, formatHome, formatListPages, formatListParts, formatPlans, formatPurpose, formatSaved, formatSearch } from './formatting.js';
-import { BUTTONS, errorText, HELP_TEXT, modeHint, TEXT } from './messages.js';
+import { BUTTONS, errorText, HELP_TEXT, MAP_HELP, modeHint, TEXT } from './messages.js';
 import type { InputMode } from './messages.js';
-import { choicesKeyboard, geoKeyboard, groupKeyboard, homeButton, mainKeyboard, nearbyKeyboard, pageKeyboard, plansKeyboard, purposeKeyboard } from './keyboards.js';
+import { choicesKeyboard, geoKeyboard, groupKeyboard, homeButton, mainKeyboard, miniAppLink, nearbyKeyboard, pageKeyboard, plansKeyboard, purposeKeyboard } from './keyboards.js';
 import { safeError, silentLogger } from '../logging.js';
 import type { AppLogger } from '../logging.js';
 import { registerGroupCommands } from './setup.js';
+import { isGroupMember } from './membership.js';
 
 export { errorText } from './messages.js';
 
@@ -27,16 +28,15 @@ interface Dialog {
   previous?: Dialog;
 }
 
-export function registerCommands(bot: Bot, service: LocationService, groupId: string, logger: AppLogger = silentLogger, pinned?: Pick<PinnedMessageService, 'update'>): void {
+export function registerCommands(bot: Bot, service: LocationService, groupId: string, logger: AppLogger = silentLogger, pinned?: Pick<PinnedMessageService, 'update'>, mapShortName?: string): void {
   const dialogs = new Map<number, Dialog>();
   const queues = new Map<number, Promise<void>>();
   const keyboards = new Map<number, string>();
   const logFailure = (ctx: Context, action: string, error: unknown) => logger.error({ event: 'command_failed', action, update_id: ctx.update.update_id, ...safeError(error) });
   const stateOf = (ctx: Context) => ctx.from ? dialogs.get(ctx.from.id) : undefined;
   const member = async (ctx: Context): Promise<boolean> => {
-    if (!ctx.from || ctx.from.is_bot || ctx.message?.sender_chat || !Number.isSafeInteger(ctx.from.id) || ctx.from.id <= 0) return false;
-    const membership = await ctx.api.getChatMember(groupId, ctx.from.id);
-    return ['creator', 'administrator', 'member'].includes(membership.status) || (membership.status === 'restricted' && membership.is_member);
+    if (!ctx.from || ctx.from.is_bot || ctx.message?.sender_chat) return false;
+    return isGroupMember(ctx.api, groupId, ctx.from.id);
   };
   const ignoreUnmodified = (error: unknown) => error instanceof GrammyError && error.error_code === 400 && error.description.toLowerCase().includes('message is not modified');
   const clearButtons = async (ctx: Context, state = stateOf(ctx)) => {
@@ -73,12 +73,12 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
     // visit to an inline screen, install navigation using a useful home card.
     if (inline && keyboards.get(ctx.chat!.id) !== variant) {
       await ctx.reply(formatHome(await service.getUser(String(ctx.from!.id))), {
-        ...options, reply_markup: mainKeyboard(variant === 'current'),
+        ...options, reply_markup: mainKeyboard(variant === 'current', !!mapShortName),
       });
       keyboards.set(ctx.chat!.id, variant);
     }
     const message = await ctx.reply(text, { ...options,
-      reply_markup: inline ?? mainKeyboard(variant === 'current'),
+      reply_markup: inline ?? mainKeyboard(variant === 'current', !!mapShortName),
     });
     if (!inline) keyboards.set(ctx.chat!.id, variant);
     else { const state = stateOf(ctx); if (state) state.messageId = message.message_id; }
@@ -102,7 +102,8 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
     display_name: [ctx.from!.first_name, ctx.from!.last_name].filter(Boolean).join(' '), username: ctx.from!.username ?? null });
   const home = async (ctx: Context) => {
     await begin(ctx, 'home');
-    await emit(ctx, formatHome(await service.getUser(String(ctx.from!.id))), undefined, true);
+    const welcome = formatHome(await service.getUser(String(ctx.from!.id)));
+    await emit(ctx, mapShortName ? `${welcome}\n\n${MAP_HELP}` : welcome, undefined, true);
   };
   const saved = async (ctx: Context, user: CurrentUser) => {
     await begin(ctx, 'home');
@@ -198,7 +199,7 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
     if (ctx.chat.type !== 'private') return;
     await safely(ctx, 'help', async () => {
       const hint = modeHint(stateOf(ctx)?.mode);
-      await emit(ctx, `${HELP_TEXT}${hint ? `\n\n${hint}` : ''}`);
+      await emit(ctx, `${HELP_TEXT}${mapShortName ? `\n\n🗺 <b>Карта</b> — открыть отметки, историю и планы. ${MAP_HELP}` : ''}${hint ? `\n\n${hint}` : ''}`);
       logger.info({ event: 'help_shown', update_id: ctx.update.update_id });
     });
   });
@@ -209,6 +210,12 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
   bot.hears([BUTTONS.find, '🔎 Найти путешественников'], (ctx) => privateAction(ctx, 'find', () => input(ctx, 'find')));
   bot.hears([BUTTONS.destination, '✈️ Изменить планы'], (ctx) => privateAction(ctx, 'destination', () => plans(ctx)));
   bot.hears(BUTTONS.home, (ctx) => privateAction(ctx, 'home', () => home(ctx)));
+  if (mapShortName) {
+    bot.hears(BUTTONS.map, (ctx) => privateAction(ctx, 'map', async () => {
+      await begin(ctx, 'home');
+      await emit(ctx, MAP_HELP, new InlineKeyboard().url('Открыть карту', miniAppLink(ctx.me.username, mapShortName)));
+    }));
+  }
   const list = async (ctx: Context) => {
     await safely(ctx, 'list', async () => {
       if (ctx.chat?.type === 'private') {
@@ -217,7 +224,7 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
         await showPages(ctx, formatListPages(await service.listGroups()), 'home');
       } else {
         for (const text of formatListParts(await service.listGroups())) {
-          await ctx.reply(text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: groupKeyboard(ctx.me.username) });
+          await ctx.reply(text, { parse_mode: 'HTML', link_preview_options: { is_disabled: true }, reply_markup: groupKeyboard(ctx.me.username, mapShortName) });
         }
       }
       logger.info({ event: 'list_shown', update_id: ctx.update.update_id });

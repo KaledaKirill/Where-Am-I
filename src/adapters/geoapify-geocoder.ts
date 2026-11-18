@@ -95,10 +95,21 @@ export class GeoapifyGeocoder implements Geocoder, ForwardGeocoder {
     // Some valid city names (e.g. Минск) return no unrestricted results, while
     // the same provider resolves them with an explicit settlement type.
     if (!settlementsOnly && !response.results.length) response = await this.request('search', { text: query, limit: '5', type: 'city' });
+    return this.candidates(query, response.results, settlementsOnly ? ['city'] : ['city', 'state', 'county', 'country']);
+  }
+
+  async searchMapPlace(query: string, type: PlaceType, countryCode?: string): Promise<PlaceCandidate[]> {
+    const { results } = await this.request('search', { text: query, type, limit: '5',
+      ...(countryCode ? { filter: `countrycode:${countryCode}` } : {}),
+    });
+    return this.candidates(query, results, [type]);
+  }
+
+  private candidates(query: string, results: Result[], types: PlaceType[]): PlaceCandidate[] {
     const candidates = new Map<string, PlaceCandidate>();
-    for (const result of response.results) {
+    for (const result of results) {
       const type = result.result_type as PlaceType;
-      if (!(settlementsOnly ? ['city'] : ['city', 'state', 'county', 'country']).includes(type)
+      if (!types.includes(type)
         || (result.rank?.confidence ?? 0) < 0.9 || !result.country_code
         || result.lat === undefined || result.lon === undefined) continue;
       const coordinates = { latitude: result.lat, longitude: result.lon };

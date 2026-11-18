@@ -6,6 +6,9 @@ import { LocationService } from './services/location-service.js';
 import { GeoapifyGeocoder } from './adapters/geoapify-geocoder.js';
 import { PinnedMessageService } from './services/pinned-message-service.js';
 import { createLogger, logOperation, safeError } from './logging.js';
+import { isGroupMember } from './bot/membership.js';
+import { PlaceResolver } from './map/places.js';
+import { MapService } from './map/service.js';
 
 const logger = createLogger();
 let startupStage = 'configuration';
@@ -22,14 +25,17 @@ async function main(): Promise<void> {
     migrationRequired = true;
     logger.warn({ event: 'sheets_migration_required' }, 'Новая версия запущена в ожидании ручной миграции. Данные не изменяются.');
   }
-  const service = new LocationService(repository, new GeoapifyGeocoder(config.GEOAPIFY_API_KEY));
+  const geocoder = new GeoapifyGeocoder(config.GEOAPIFY_API_KEY);
+  const service = new LocationService(repository, geocoder);
   const bot = new Bot(config.TELEGRAM_BOT_TOKEN, { client: { timeoutSeconds: 10 } });
   startupStage = 'telegram_initialize';
   await logOperation(logger, 'telegram_initialize', () => bot.init());
-  const pinned = new PinnedMessageService(repository, service, bot.api, config.TELEGRAM_GROUP_ID, logger, bot.botInfo.username);
+  const map = config.GEOAPIFY_MAPS_API_KEY ? new MapService(repository, id => isGroupMember(bot.api, config.TELEGRAM_GROUP_ID, id),
+    new PlaceResolver((...args) => geocoder.searchMapPlace(...args))) : undefined;
+  const pinned = new PinnedMessageService(repository, service, bot.api, config.TELEGRAM_GROUP_ID, logger, bot.botInfo.username, config.MAP_APP_SHORT_NAME);
   startupStage = 'pinned_message_refresh';
   if (!migrationRequired) await pinned.update();
-  const app = createApp(config, service, bot, logger, pinned);
+  const app = createApp(config, service, bot, logger, pinned, map);
   let closing = false;
   const shutdown = async (signal: string) => {
     if (closing) return;

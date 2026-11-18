@@ -3,10 +3,11 @@ import { BUTTONS } from './messages.js';
 import { locationLabel } from '../domain/geocoder.js';
 import type { PlaceCandidate } from '../domain/models.js';
 
-export function mainKeyboard(current = false): Keyboard {
+export function mainKeyboard(current = false, mapEnabled = false): Keyboard {
   const keyboard = new Keyboard();
   if (current) keyboard.requestLocation(BUTTONS.location).row();
   keyboard.text(BUTTONS.checkin).text(BUTTONS.destination).row().text(BUTTONS.find).text(BUTTONS.list);
+  if (mapEnabled) keyboard.row().text(BUTTONS.map);
   if (current) keyboard.row().text(BUTTONS.home);
   return keyboard.resized().persistent().oneTime(false);
 }
@@ -33,8 +34,14 @@ export function pageKeyboard(token: string, page: number, total: number): Inline
   return homeButton(keyboard, token);
 }
 
-export function groupKeyboard(username: string): InlineKeyboard {
-  return new InlineKeyboard().url('📍 Отметиться в боте', `https://t.me/${username}?start=checkin`);
+export function miniAppLink(username: string, shortName: string): string {
+  return `https://t.me/${username}/${shortName}`;
+}
+
+export function groupKeyboard(username: string, mapShortName?: string): InlineKeyboard {
+  const keyboard = new InlineKeyboard().url('📍 Отметиться в боте', `https://t.me/${username}?start=checkin`);
+  if (mapShortName) keyboard.row().url(BUTTONS.map, miniAppLink(username, mapShortName));
+  return keyboard;
 }
 
 export function nearbyKeyboard(token: string): InlineKeyboard {

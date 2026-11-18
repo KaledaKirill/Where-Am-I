@@ -7,15 +7,19 @@ import { registerCommands } from './bot/commands.js';
 import { createLogger, safeError } from './logging.js';
 import type { Logger } from 'pino';
 import type { PinnedMessageService } from './services/pinned-message-service.js';
+import { registerMapRoutes } from './map/routes.js';
+import type { MapService } from './map/service.js';
 
-export function createApp(config: Config, service: LocationService, bot = new Bot(config.TELEGRAM_BOT_TOKEN, { client: { timeoutSeconds: 10 } }), logger: boolean | Logger = false, pinned?: Pick<PinnedMessageService, 'update'>) {
+export function createApp(config: Config, service: LocationService, bot = new Bot(config.TELEGRAM_BOT_TOKEN, { client: { timeoutSeconds: 10 } }), logger: boolean | Logger = false, pinned?: Pick<PinnedMessageService, 'update'>, map?: MapService) {
   const loggerInstance = typeof logger === 'object' ? logger : logger ? createLogger(config.LOG_LEVEL) : undefined;
   const app = Fastify({
     ...(loggerInstance ? { loggerInstance } : { logger: false }),
     logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 1024 * 1024,
   });
-  registerCommands(bot, service, config.TELEGRAM_GROUP_ID, app.log, pinned);
+  registerCommands(bot, service, config.TELEGRAM_GROUP_ID, app.log, pinned, map ? config.MAP_APP_SHORT_NAME : undefined);
+  const mapKey = config.GEOAPIFY_MAPS_API_KEY;
+  if (map && mapKey) app.register(async instance => registerMapRoutes(instance, config, map, mapKey, bot.botInfo.username));
   app.addHook('onResponse', async (request, reply) => {
     if (request.routeOptions.url === '/telegram/webhook') {
       request.log.debug({ event: 'webhook_request_completed', status_code: reply.statusCode, duration_ms: Math.round(reply.elapsedTime) });

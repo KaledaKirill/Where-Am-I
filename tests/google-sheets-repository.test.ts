@@ -46,6 +46,16 @@ describe('GoogleSheetsRepository', () => {
     expect(f.tables.get('LocationHistory')).toHaveLength(3);
   });
 
+  it('reads selected history with reordered headers and preserves old dates without exposing source coordinates', async () => {
+    const columns = ['legacy_location', ...HISTORY_COLUMNS].reverse();
+    const row = (record: Record<string, unknown>) => columns.map(column => String(record[column] ?? ''));
+    const f = fakeSheets({ LocationHistory: [columns, row({ ...event, recorded_at: 'до переезда' }), [],
+      row({ ...event, user_id: '2002', legacy_location: 'точный адрес' })] });
+    const entries = await f.repo.listHistory(new Set(['1001']));
+    expect(entries).toEqual([{ user_id: '1001', city: 'Берлин', county: '', country: 'Германия', country_code: '',
+      region: 'Берлин', recorded_at: 'до переезда' }]);
+  });
+
   it('accepts a manual migration after starting on a legacy schema without restarting', async () => {
     const f = fakeSheets({ Users: [['user_id', 'location', 'updated_at'], ['1', 'спб', current.updated_at]] });
     await expect(f.repo.initialize()).rejects.toThrow('sheets_migration_required');
