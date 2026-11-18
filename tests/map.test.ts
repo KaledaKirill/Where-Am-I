@@ -91,6 +91,31 @@ describe('Telegram Mini App map API', () => {
     await app.close();
   });
 
+  it('returns current marks on launch after one viewer check and allows retrying a failed data read', async () => {
+    const { app, repo, member, history } = fixture();
+    const users = vi.spyOn(repo, 'listUsers');
+    const start = (id: number) => app.inject({ method: 'POST', url: '/api/map/session',
+      payload: { initData: launchData(id), includeCurrent: true } });
+
+    expect((await start(1003)).statusCode).toBe(403);
+    expect(users).not.toHaveBeenCalled();
+    member.mockClear();
+    const launch = await start(1001);
+    expect(launch.statusCode).toBe(200);
+    expect(launch.json().initialData.participants.map((person: { id: string }) => person.id)).toEqual(['1001', '1002']);
+    expect(member.mock.calls.filter(([id]) => id === 1001)).toHaveLength(1);
+    expect(history).not.toHaveBeenCalled();
+
+    users.mockRejectedValueOnce(new Error('Sheets unavailable'));
+    const partial = await start(1001);
+    expect(partial.statusCode).toBe(200);
+    expect(partial.json().initialData).toBeUndefined();
+    const retry = await app.inject({ method: 'POST', url: '/api/map/data',
+      headers: { authorization: `Bearer ${partial.json().token}` }, payload: { mode: 'current' } });
+    expect(retry.statusCode).toBe(200);
+    await app.close();
+  });
+
   it('loads history only for selected active users and returns public place coordinates for every layer', async () => {
     const { app, repo, history, lookup, member } = fixture();
     const token = mapAuth(env.TELEGRAM_BOT_TOKEN).issue(1001);

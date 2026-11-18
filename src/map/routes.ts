@@ -1,14 +1,14 @@
 import { readFile } from 'node:fs/promises';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Config } from '../config.js';
 import { mapAuth } from './auth.js';
 import { mapFailure, readMapDependency } from './dependencies.js';
 import type { MapService } from './service.js';
 import { mapModes } from './types.js';
-import type { MapSession } from './types.js';
+import type { MapMode, MapSession } from './types.js';
 
-const sessionBody = z.strictObject({ initData: z.string().min(1).max(16_000) });
+const sessionBody = z.strictObject({ initData: z.string().min(1).max(16_000), includeCurrent: z.boolean().optional() });
 const dataBody = z.strictObject({
   mode: z.enum(mapModes),
   participantIds: z.array(z.string().regex(/^[1-9]\d{0,15}$/)).max(5_000).optional(),
@@ -37,6 +37,19 @@ export function registerMapRoutes(app: FastifyInstance, config: Config, service:
   const auth = mapAuth(config.TELEGRAM_BOT_TOKEN);
   const origin = new URL(config.PUBLIC_BASE_URL).origin;
   const options = { bodyLimit: 128 * 1024 };
+
+  async function loadData(log: FastifyBaseLogger, id: number, mode: MapMode, participantIds?: string[]) {
+    const started = performance.now();
+    try {
+      const data = await service.data(id, mode, participantIds);
+      log.info({ event: 'map_data_loaded', mode, participants: data.participants.length,
+        travelers: data.travelers.length, duration_ms: Math.round(performance.now() - started) });
+      return data;
+    } catch (error) {
+      log.warn({ event: 'map_data_unavailable', mode, ...mapFailure(error) });
+    }
+  }
+
   for (const [path, [file, mime]] of Object.entries(assets)) {
     app.get(path, async (_request, reply) => {
       reply.type(mime).header('Cache-Control', 'no-cache').header('X-Content-Type-Options', 'nosniff');
@@ -49,7 +62,8 @@ export function registerMapRoutes(app: FastifyInstance, config: Config, service:
     reply.header('Cache-Control', 'no-store');
     if (request.headers.origin && request.headers.origin !== origin) return reply.code(403).send({ error: 'forbidden' });
     const body = sessionBody.safeParse(request.body);
-    const id = body.success ? auth.verifyLaunch(body.data.initData) : null;
+    if (!body.success) return reply.code(401).send({ error: 'invalid_launch' });
+    const id = auth.verifyLaunch(body.data.initData);
     if (id === null) return reply.code(401).send({ error: 'invalid_launch' });
     try {
       if (!await readMapDependency('viewer_membership', () => service.isMember(id))) return reply.code(403).send({ error: 'not_a_member' });
@@ -59,8 +73,10 @@ export function registerMapRoutes(app: FastifyInstance, config: Config, service:
     }
     const style = (name: string) => `https://maps.geoapify.com/v1/styles/${name}/style.json?apiKey=${encodeURIComponent(mapKey)}&attribution=mandatory`;
     const username = botUsername();
+    const initialData = body.data.includeCurrent ? await loadData(request.log, id, 'current') : undefined;
     const session: MapSession = { token: auth.issue(id), viewerId: String(id), styleUrl: style('positron'),
-      darkStyleUrl: style('dark-matter'), ...(username && { checkInUrl: `https://t.me/${username}?start=checkin` }) };
+      darkStyleUrl: style('dark-matter'), ...(username && { checkInUrl: `https://t.me/${username}?start=checkin` }),
+      ...(initialData && { initialData }) };
     return session;
   });
 
@@ -73,10 +89,11 @@ export function registerMapRoutes(app: FastifyInstance, config: Config, service:
     if (!body.success) return reply.code(400).send({ error: 'invalid_request' });
     try {
       if (!await readMapDependency('viewer_membership', () => service.isMember(id))) return reply.code(403).send({ error: 'not_a_member' });
-      return await service.data(id, body.data.mode, body.data.participantIds);
     } catch (error) {
-      request.log.warn({ event: 'map_data_unavailable', ...mapFailure(error) });
+      request.log.warn({ event: 'map_data_unavailable', mode: body.data.mode, ...mapFailure(error) });
       return reply.code(503).send({ error: 'unavailable' });
     }
+    const data = await loadData(request.log, id, body.data.mode, body.data.participantIds);
+    return data ?? reply.code(503).send({ error: 'unavailable' });
   });
 }

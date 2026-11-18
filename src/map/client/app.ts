@@ -154,6 +154,17 @@ function showDataStatus() {
 }
 
 type CameraAction = 'fit' | 'restore' | 'hold';
+function present(result: MapData, camera: CameraAction, attempt: number) {
+  const wasEmpty = !rendered.markers.features.length;
+  data = result;
+  loaded = true;
+  redraw();
+  if (camera === 'restore' && previousCamera) map?.restore(previousCamera);
+  else if (camera === 'fit' || (attempt > 0 && wasEmpty && rendered.markers.features.length)) fitSelection();
+  showDataStatus();
+  if (result.resolvingPlaces && attempt < 6) refreshTimer = setTimeout(() => { void refresh('hold', attempt + 1); }, 2_500);
+}
+
 async function refresh(camera: CameraAction, attempt = 0) {
   if (!session) return;
   clearTimeout(refreshTimer);
@@ -171,14 +182,7 @@ async function refresh(camera: CameraAction, attempt = 0) {
       ...(!mine && selection ? { participantIds: [...selection] } : {}),
     }, request.signal, session.token);
     if (request.signal.aborted) return;
-    const wasEmpty = !rendered.markers.features.length;
-    data = result;
-    loaded = true;
-    redraw();
-    if (camera === 'restore' && previousCamera) map?.restore(previousCamera);
-    else if (camera === 'fit' || (attempt > 0 && wasEmpty && rendered.markers.features.length)) fitSelection();
-    showDataStatus();
-    if (result.resolvingPlaces && attempt < 6) refreshTimer = setTimeout(() => { void refresh('hold', attempt + 1); }, 2_500);
+    present(result, camera, attempt);
   } catch (error) {
     if (request.signal.aborted) return;
     dialogs.forEach(dialog => { if (dialog.open) dialog.close(); });
@@ -217,14 +221,17 @@ function sizeSheet() {
 async function launch() {
   if (!telegram?.initData) { showStatus('Открой карту из Telegram'); return; }
   showStatus('Открываем карту…');
+  let response: MapSession;
   try {
-    session = await post<MapSession>('session', { initData: telegram.initData });
+    response = await post<MapSession>('session', { initData: telegram.initData, includeCurrent: true });
   } catch (error) {
     const status = error instanceof HttpError ? error.status : 0;
     showStatus(status === 403 ? 'Карта доступна участникам группы' : status === 401
       ? 'Открой карту заново из бота' : 'Карта временно недоступна', { retry: status !== 401 && status !== 403 });
     return;
   }
+  const { initialData, ...activeSession } = response;
+  session = activeSession;
   if (session.checkInUrl) checkIn.href = session.checkInUrl;
   if (!map) {
     try {
@@ -234,7 +241,8 @@ async function launch() {
       });
     } catch { mapUnavailable = true; }
   }
-  await refresh('fit');
+  if (initialData) present(initialData, 'fit', 0);
+  else await refresh('fit');
 }
 
 for (const dialog of dialogs) {

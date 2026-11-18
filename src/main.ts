@@ -1,4 +1,4 @@
-import { Bot } from 'grammy';
+import { Bot, GrammyError } from 'grammy';
 import { setTimeout as delay } from 'node:timers/promises';
 import { loadConfig } from './config.js';
 import { createApp } from './app.js';
@@ -18,14 +18,18 @@ let startupStage = 'configuration';
 async function initializeTelegram(setup: () => Promise<void>, signal: AbortSignal): Promise<void> {
   let retryDelay = 5_000;
   while (!signal.aborted) {
+    let wait = retryDelay;
     try {
       await setup();
       return;
     } catch (error) {
       if (signal.aborted) return;
-      logger.warn({ event: 'telegram_setup_retry', retry_delay_ms: retryDelay, ...safeError(error) });
+      if (error instanceof GrammyError && error.error_code === 429) {
+        wait = Math.max(wait, (error.parameters.retry_after ?? 0) * 1_000);
+      }
+      logger.warn({ event: 'telegram_setup_retry', retry_delay_ms: wait, ...safeError(error) });
     }
-    await delay(retryDelay, undefined, { ref: false, signal });
+    await delay(wait, undefined, { ref: false, signal });
     retryDelay = Math.min(retryDelay * 2, 60_000);
   }
 }

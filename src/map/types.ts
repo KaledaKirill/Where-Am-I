@@ -40,4 +40,5 @@ export interface MapSession {
   styleUrl: string;
   darkStyleUrl: string;
   checkInUrl?: string;
+  initialData?: MapData;
 }
