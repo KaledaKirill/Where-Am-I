@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { mapAuth } from '../src/map/auth.js';
+import { ParticipantColors } from '../src/map/client/colors.js';
 import { lineSegments, mapBounds, scene } from '../src/map/client/geometry.js';
 import { participantSearch } from '../src/map/client/panels.js';
 import { describePlace, PlaceResolver } from '../src/map/places.js';
@@ -125,14 +126,19 @@ describe('Telegram Mini App map API', () => {
     registerCommands(bot, service, env.TELEGRAM_GROUP_ID, undefined, undefined, 'travel_map');
     await bot.handleUpdate(messageUpdate('/start', 1001));
     await bot.handleUpdate(messageUpdate('🗺 Карта', 1001));
+    await bot.handleUpdate(messageUpdate('/help', 1001));
     await bot.handleUpdate(messageUpdate('/list'));
     expect(calls.filter(call => call.method === 'sendMessage').map(call => call.payload)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ text: expect.stringContaining('прошлые и новые отметки'),
+      expect.objectContaining({ text: '<b>🗺 Карта участников</b>\n\nПосмотри последние отметки, маршруты и планы поездок.\n\nВыбери участников или открой «Мою историю».',
         reply_markup: expect.objectContaining({ inline_keyboard: [[{ text: 'Открыть карту', url: 'https://t.me/WhereAmIBot/travel_map' }]] }) }),
       expect.objectContaining({ chat_id: -100123, reply_markup: expect.objectContaining({ inline_keyboard: expect.arrayContaining([
         [{ text: '🗺 Карта', url: 'https://t.me/WhereAmIBot/travel_map' }],
       ]) }) }),
     ]));
+    const home = calls.find(call => call.method === 'sendMessage')?.payload.text;
+    expect(home).not.toContain('Моя история');
+    const help = calls.find(call => String(call.payload.text).startsWith('<b>Как пользоваться ботом</b>'))?.payload.text;
+    expect(help).toContain('отметки, маршруты и планы участников группы');
   });
 });
 
@@ -157,7 +163,7 @@ describe('map rendering data', () => {
       { place, date: '2026-10-01' },
       { place: { ...place, id: 'missing', point: null }, date: '2026-10-03' },
       { place: { ...place, id: 'b', point: [-179, 10] }, date: '2026-10-07' },
-    ] }], false);
+    ] }], false, () => '#6848cb');
     expect(value.groups.size).toBe(3);
     expect(value.markers.features).toHaveLength(2);
     expect(value.routes.features).toHaveLength(0);
@@ -166,9 +172,33 @@ describe('map rendering data', () => {
   it('keeps multiple shared destinations and same-named places distinct', () => {
     const left: MapPlace = { id: 'region-one', label: 'Александровка', level: 'city', point: [25, 40] };
     const right: MapPlace = { ...left, id: 'region-two', point: [30, 41] };
-    const value = scene(['a', 'b', 'c', 'd'].map((id, index) => ({ id, destination: index < 2 ? left : right })), false);
+    const value = scene(['a', 'b', 'c', 'd'].map((id, index) => ({ id, destination: index < 2 ? left : right })), false, () => '#6848cb');
     expect([...value.groups.values()].map(group => group.plans.size)).toEqual([2, 2]);
     expect(value.markers.features.map(feature => feature.properties?.size)).toEqual([2, 2]);
+  });
+
+  it('assigns distinct colors to all participants and preserves colors across modes and filtering', () => {
+    const colors = new ParticipantColors();
+    const ids = Array.from({ length: 140 }, (_, index) => String(1001 + index));
+    colors.register(ids);
+    for (const dark of [false, true]) {
+      const resolve = (id: string) => colors.color(id, dark);
+      expect(new Set(ids.map(resolve)).size).toBe(140);
+      expect(resolve('1001')).not.toBe(resolve('1010'));
+      const a: MapPlace = { id: 'a', label: 'Берлин', level: 'city', point: [13, 52] };
+      const b: MapPlace = { id: 'b', label: 'Минск', level: 'city', point: [27, 54] };
+      const c: MapPlace = { id: 'c', label: 'Варшава', level: 'city', point: [21, 52] };
+      const old = { place: a, date: '2026-11-17' };
+      const current = { place: b, date: '2026-11-18' };
+      const first = { id: '1001', history: [old, current], current, destination: c };
+      const second = { ...first, id: '1010' };
+      const group = scene([first, second], dark, resolve);
+      const mine = scene([first], dark, resolve);
+      const strokes = (value: ReturnType<typeof scene>) => value.routes.features.map(feature => feature.properties?.color);
+      expect(strokes(group)).toEqual([resolve('1001'), resolve('1001'), resolve('1010'), resolve('1010')]);
+      expect(strokes(mine)).toEqual(strokes(group).slice(0, 2));
+      expect(mine.markers.features.find(marker => marker.properties?.placeId === 'b')?.properties?.color).toBe(resolve('1001'));
+    }
   });
 
   it('finds participants by name and username across a long directory', () => {

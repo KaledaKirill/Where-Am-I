@@ -6,7 +6,7 @@ import { locationLabel } from '../domain/geocoder.js';
 import type { LocationService } from '../services/location-service.js';
 import type { PinnedMessageService } from '../services/pinned-message-service.js';
 import { formatChoices, formatHome, formatListPages, formatListParts, formatPlans, formatPurpose, formatSaved, formatSearch } from './formatting.js';
-import { BUTTONS, errorText, HELP_TEXT, MAP_HELP, modeHint, TEXT } from './messages.js';
+import { BUTTONS, errorText, HELP_TEXT, MAP_HELP, MAP_INTRO, modeHint, TEXT } from './messages.js';
 import type { InputMode } from './messages.js';
 import { choicesKeyboard, geoKeyboard, groupKeyboard, homeButton, mainKeyboard, miniAppLink, nearbyKeyboard, pageKeyboard, plansKeyboard, purposeKeyboard } from './keyboards.js';
 import { safeError, silentLogger } from '../logging.js';
@@ -102,8 +102,7 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
     display_name: [ctx.from!.first_name, ctx.from!.last_name].filter(Boolean).join(' '), username: ctx.from!.username ?? null });
   const home = async (ctx: Context) => {
     await begin(ctx, 'home');
-    const welcome = formatHome(await service.getUser(String(ctx.from!.id)));
-    await emit(ctx, mapShortName ? `${welcome}\n\n${MAP_HELP}` : welcome, undefined, true);
+    await emit(ctx, formatHome(await service.getUser(String(ctx.from!.id))), undefined, true);
   };
   const saved = async (ctx: Context, user: CurrentUser) => {
     await begin(ctx, 'home');
@@ -199,7 +198,7 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
     if (ctx.chat.type !== 'private') return;
     await safely(ctx, 'help', async () => {
       const hint = modeHint(stateOf(ctx)?.mode);
-      await emit(ctx, `${HELP_TEXT}${mapShortName ? `\n\n🗺 <b>Карта</b> — открыть отметки, историю и планы. ${MAP_HELP}` : ''}${hint ? `\n\n${hint}` : ''}`);
+      await emit(ctx, `${HELP_TEXT}${mapShortName ? `\n\n${MAP_HELP}` : ''}${hint ? `\n\n${hint}` : ''}`);
       logger.info({ event: 'help_shown', update_id: ctx.update.update_id });
     });
   });
@@ -213,7 +212,7 @@ export function registerCommands(bot: Bot, service: LocationService, groupId: st
   if (mapShortName) {
     bot.hears(BUTTONS.map, (ctx) => privateAction(ctx, 'map', async () => {
       await begin(ctx, 'home');
-      await emit(ctx, MAP_HELP, new InlineKeyboard().url('Открыть карту', miniAppLink(ctx.me.username, mapShortName)));
+      await emit(ctx, MAP_INTRO, new InlineKeyboard().url('Открыть карту', miniAppLink(ctx.me.username, mapShortName)));
     }));
   }
   const list = async (ctx: Context) => {

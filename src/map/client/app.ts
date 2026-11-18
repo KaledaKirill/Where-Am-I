@@ -2,6 +2,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import './app.css';
 import type { CameraOptions } from 'maplibre-gl';
 import type { MapData, MapEvent, MapMode, MapSession } from '../types.js';
+import { ParticipantColors } from './colors.js';
 import { scene } from './geometry.js';
 import { TravelMap } from './map.js';
 import { DetailPanel, element, ParticipantPanel } from './panels.js';
@@ -42,7 +43,9 @@ let selection: Set<string> | null = null;
 let activeRequest: AbortController | undefined;
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 let dark = telegram?.colorScheme ? telegram.colorScheme === 'dark' : preference.matches;
-let rendered = scene([], dark);
+const participantColors = new ParticipantColors();
+const colorFor = (id: string) => participantColors.color(id, dark);
+let rendered = scene([], dark, colorFor);
 let mapUnavailable = false;
 let baseUnavailable = false;
 let loaded = false;
@@ -87,12 +90,12 @@ function openDialog(dialog: HTMLDialogElement) {
   syncBack();
 }
 
-const detail = new DetailPanel(openDialog);
-const participants = new ParticipantPanel(openDialog, ids => { selection = ids; void refresh('fit'); });
+const detail = new DetailPanel(openDialog, colorFor);
+const participants = new ParticipantPanel(openDialog, colorFor, ids => { selection = ids; void refresh('fit'); });
 
 function openPlace(id: string) {
   const group = rendered.groups.get(id);
-  if (group) detail.place(group, data.participants, dark);
+  if (group) detail.place(group, data.participants);
 }
 
 function openPlaces(ids?: string[]) {
@@ -135,7 +138,8 @@ function syncControls() {
 }
 
 function redraw() {
-  rendered = scene(data.travelers, dark);
+  participantColors.register(data.participants.map(person => person.id));
+  rendered = scene(data.travelers, dark, colorFor);
   map?.render(rendered);
   syncControls();
   mapNote();
@@ -247,7 +251,7 @@ for (const button of modeButtons) {
   });
 }
 mineButton.addEventListener('click', () => setMine(!mine));
-filterButton.addEventListener('click', () => participants.open(data.participants, selection, dark));
+filterButton.addEventListener('click', () => participants.open(data.participants, selection));
 element('timeline').addEventListener('click', () => {
   const own = data.travelers.find(traveler => traveler.id === session?.viewerId);
   const history = own?.history ?? [];

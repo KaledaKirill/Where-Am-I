@@ -1,4 +1,3 @@
-import { colorFor } from './geometry.js';
 import type { PlaceGroup } from './geometry.js';
 import type { MapEvent, MapParticipant } from '../types.js';
 
@@ -21,10 +20,10 @@ export function participantSearch(people: MapParticipant[], query: string): MapP
   });
 }
 
-function personText(row: HTMLElement, person: MapParticipant, dark: boolean, subtitle?: string) {
+function personText(row: HTMLElement, person: MapParticipant, color: string, subtitle?: string) {
   const icon = append(row, 'span', 'avatar', Array.from(person.name.trim())[0]?.toLocaleUpperCase('ru') ?? '•');
   icon.setAttribute('aria-hidden', 'true');
-  icon.style.setProperty('--person-color', colorFor(person.id, dark));
+  icon.style.setProperty('--person-color', color);
   const text = append(row, 'span', 'row-text');
   append(text, 'strong', '', person.name);
   if (subtitle) append(text, 'small', '', subtitle);
@@ -54,9 +53,8 @@ export class ParticipantPanel {
   private results: MapParticipant[] = [];
   private draft = new Set<string>();
   private shown = 0;
-  private dark = false;
-
-  constructor(private readonly onOpen: (dialog: HTMLDialogElement) => void, onApply: (ids: Set<string> | null) => void) {
+  constructor(private readonly onOpen: (dialog: HTMLDialogElement) => void,
+    private readonly colorFor: (id: string) => string, onApply: (ids: Set<string> | null) => void) {
     this.search.addEventListener('input', () => this.render());
     this.clear.addEventListener('click', () => this.bulk(false));
     this.selectAll.addEventListener('click', () => this.bulk(true));
@@ -70,9 +68,8 @@ export class ParticipantPanel {
     }, { passive: true });
   }
 
-  open(people: MapParticipant[], selection: Set<string> | null, dark: boolean) {
+  open(people: MapParticipant[], selection: Set<string> | null) {
     this.people = people;
-    this.dark = dark;
     this.draft = new Set(people.filter(person => !selection || selection.has(person.id)).map(person => person.id));
     this.search.value = '';
     this.render();
@@ -97,7 +94,7 @@ export class ParticipantPanel {
     const end = Math.min(this.results.length, this.shown + 40);
     for (const person of this.results.slice(this.shown, end)) {
       const label = append(append(fragment, 'li'), 'label', 'row');
-      personText(label, person, this.dark, person.username ? `@${person.username}` : undefined);
+      personText(label, person, this.colorFor(person.id), person.username ? `@${person.username}` : undefined);
       const input = append(label, 'input');
       input.type = 'checkbox';
       input.value = person.id;
@@ -134,9 +131,10 @@ export class DetailPanel {
   private readonly detail = element('detail-body');
   private readonly dialog = element<HTMLDialogElement>('detail-sheet');
 
-  constructor(private readonly onOpen: (dialog: HTMLDialogElement) => void) {}
+  constructor(private readonly onOpen: (dialog: HTMLDialogElement) => void,
+    private readonly colorFor: (id: string) => string) {}
 
-  place(group: PlaceGroup, people: MapParticipant[], dark: boolean) {
+  place(group: PlaceGroup, people: MapParticipant[]) {
     const { title, detail } = this;
     title.textContent = group.place.label;
     detail.replaceChildren();
@@ -153,7 +151,7 @@ export class DetailPanel {
       append(detail, 'h3', '', `${name} · ${members.length}`);
       for (const [id, subtitle] of members) {
         const person = byId.get(id);
-        if (person) personText(append(detail, 'div', 'row'), person, dark, subtitle);
+        if (person) personText(append(detail, 'div', 'row'), person, this.colorFor(id), subtitle);
       }
     }
     this.open();

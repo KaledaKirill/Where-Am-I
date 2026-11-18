@@ -8,15 +8,6 @@ export interface PlaceGroup {
   plans: Set<string>;
 }
 
-const colors = ['#6848cb', '#08766c', '#a64c11', '#245bb3', '#a73f77', '#65750b', '#b44543', '#396b8d', '#704a9c', '#227244'];
-const darkColors = ['#c1a9ff', '#65d9c5', '#ffb781', '#93bfff', '#f4a3d2', '#d2df78', '#ffaaa7', '#b2cfee', '#d1b6f2', '#97d9aa'];
-export function colorFor(id: string, dark = false): string {
-  const palette = dark ? darkColors : colors;
-  let hash = 0;
-  for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return palette[hash % palette.length]!;
-}
-
 export function lineSegments(from: MapPoint, to: MapPoint): MapPoint[][] {
   if (from[0] === to[0] && from[1] === to[1]) return [];
   const change = to[0] - from[0];
@@ -70,7 +61,7 @@ export interface Scene {
   routes: FeatureCollection<MultiLineString>;
 }
 
-export function scene(travelers: MapData['travelers'], dark: boolean): Scene {
+export function scene(travelers: MapData['travelers'], dark: boolean, colorFor: (id: string) => string): Scene {
   const groups = new Map<string, PlaceGroup>();
   const routes: Feature<MultiLineString>[] = [];
   function group(place: MapPlace): PlaceGroup {
@@ -94,7 +85,7 @@ export function scene(travelers: MapData['travelers'], dark: boolean): Scene {
     const plans = current?.place.point && destination?.point ? lineSegments(current.place.point, destination.point) : [];
     for (const [kind, coordinates] of [['history', historySegments(history)], ['plan', plans]] as const) {
       if (coordinates.length) routes.push({ type: 'Feature', geometry: { type: 'MultiLineString', coordinates },
-        properties: { color: colorFor(id, dark), kind } });
+        properties: { color: colorFor(id), kind } });
     }
   }
   const markers: Feature<Point>[] = [];
@@ -106,7 +97,7 @@ export function scene(travelers: MapData['travelers'], dark: boolean): Scene {
     markers.push({ type: 'Feature', geometry: { type: 'Point', coordinates: place.point }, properties: {
       placeId: place.id, label: place.label.split(',')[0], kind, size,
       planBadge: kind === 'current' && plans.size ? `↗ ${plans.size}` : '',
-      color: id && size === 1 ? colorFor(id, dark) : dark ? '#91baff' : '#285bcd',
+      color: id && size === 1 ? colorFor(id) : dark ? '#91baff' : '#285bcd',
     } });
   }
   return { groups, markers: { type: 'FeatureCollection', features: markers }, routes: { type: 'FeatureCollection', features: routes } };
